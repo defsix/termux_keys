@@ -112,13 +112,16 @@ that host.
 
 ### Numbering and groups
 
-`conn list` prints every host as a numbered, grouped line:
+`conn list` prints every host as a numbered, grouped line, including the
+resolved `User`/`HostName` (via `ssh -G`, so it reflects the actual computed
+config — defaults, `Match` blocks, etc. — not just what's on that one `Host`
+line):
 
 ```
- 1) [work] web1
- 2) [work] web2
- 3) [personal] phone
- 4) loose
+ 1) [work] web1 (admin@192.168.1.50)
+ 2) [work] web2 (admin@192.168.1.51)
+ 3) [personal] phone (def@100.90.203.111)
+ 4) loose (root@10.0.0.9)
 ```
 
 The same numbers appear in the `conn connect` / `conn rm` fzf picker, and

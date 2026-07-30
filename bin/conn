@@ -63,7 +63,9 @@ EOF
 # A comment line "# Group: NAME" tags every Host block that follows it,
 # until the next such comment (or "# Group: " with nothing after the colon,
 # which resets to ungrouped).
-list_hosts_meta() {
+# Alias + group only, straight from the config file — no ssh -G resolution,
+# so it's cheap to call just to inspect grouping (see cmd_add).
+list_hosts_meta_raw() {
   [[ -f "$SSH_CONFIG" ]] || return 0
   awk '
     {
@@ -85,26 +87,49 @@ list_hosts_meta() {
   ' "$SSH_CONFIG"
 }
 
+# alias\tgroup\tuser\thostname — the last two via `ssh -G`, which resolves
+# ssh's actual computed config (defaults, Match blocks, etc.) rather than us
+# re-parsing the file by hand.
+list_hosts_meta() {
+  local alias group resolved user hostname
+  while IFS=$'\t' read -r alias group; do
+    [[ -n "$alias" ]] || continue
+    resolved="$(ssh -G "$alias" 2>/dev/null)"
+    user="$(printf '%s\n' "$resolved" | awk '$1 == "user" { print $2; exit }')"
+    hostname="$(printf '%s\n' "$resolved" | awk '$1 == "hostname" { print $2; exit }')"
+    printf '%s\t%s\t%s\t%s\n' "$alias" "$group" "$user" "$hostname"
+  done < <(list_hosts_meta_raw)
+}
+
 list_hosts() {
-  list_hosts_meta | cut -f1
+  list_hosts_meta_raw | cut -f1
 }
 
 # Populates HOST_ALIASES / HOST_GROUPS / HOST_LINES (1-indexed, numbered
-# "N) [group] alias" display strings) from the current ssh config.
+# "N) [group] alias (user@hostname)" display strings) from the current ssh
+# config — user/hostname come from `ssh -G`, so they're the resolved
+# values (respecting defaults, Match blocks, etc.), not just what's on the
+# alias's own Host line.
 load_host_index() {
   HOST_ALIASES=()
   HOST_GROUPS=()
   HOST_LINES=()
-  local alias group n=0
-  while IFS=$'\t' read -r alias group; do
+  local alias group user hostname target n=0
+  while IFS=$'\t' read -r alias group user hostname; do
     [[ -n "$alias" ]] || continue
     n=$((n + 1))
     HOST_ALIASES+=("$alias")
     HOST_GROUPS+=("$group")
+    target=""
+    if [[ -n "$user" && -n "$hostname" ]]; then
+      target=" (${user}@${hostname})"
+    elif [[ -n "$hostname" ]]; then
+      target=" (${hostname})"
+    fi
     if [[ -n "$group" ]]; then
-      HOST_LINES+=("$(printf '%2d) [%s] %s' "$n" "$group" "$alias")")
+      HOST_LINES+=("$(printf '%2d) [%s] %s%s' "$n" "$group" "$alias" "$target")")
     else
-      HOST_LINES+=("$(printf '%2d) %s' "$n" "$alias")")
+      HOST_LINES+=("$(printf '%2d) %s%s' "$n" "$alias" "$target")")
     fi
   done < <(list_hosts_meta)
 }
@@ -210,7 +235,7 @@ cmd_add() {
   read -r -p "Group (optional, e.g. work): " group
 
   local last_group
-  last_group="$(list_hosts_meta | tail -n1 | cut -f2)"
+  last_group="$(list_hosts_meta_raw | tail -n1 | cut -f2)"
 
   {
     printf '\n'
