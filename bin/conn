@@ -632,7 +632,12 @@ EOF
       ;;
     ""|status)
       git -C "$CONN_HOME" add -A
-      git -C "$CONN_HOME" commit -m "conn sync $(date -Iseconds)" >/dev/null || echo "conn: nothing to commit"
+      if [[ -n "$(git -C "$CONN_HOME" status --porcelain)" ]]; then
+        git -C "$CONN_HOME" commit -m "conn sync $(date -Iseconds)" || \
+          die "commit failed (see the git error above — first time here? run: git -C $CONN_HOME config user.email you@example.com && git -C $CONN_HOME config user.name 'Your Name')"
+      else
+        echo "conn: nothing to commit"
+      fi
       if git -C "$CONN_HOME" remote get-url origin >/dev/null 2>&1; then
         git -C "$CONN_HOME" pull --rebase --autostash
         git -C "$CONN_HOME" push -u origin HEAD
