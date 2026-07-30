@@ -352,7 +352,7 @@ cmd_snip_add() {
   [[ -n "$name" ]] || die "usage: conn snip add NAME"
   ensure_dirs
   file="$(snip_file "$name")"
-  [[ -f "$file" ]] || printf '# %s\n' "$name" > "$file"
+  [[ -f "$file" ]] || : > "$file"
   "${EDITOR:-nano}" "$file"
   echo "conn: saved snippet '$name' -> $file"
 }
