@@ -384,12 +384,14 @@ pick_snippet() {
     --preview="cat '$SNIP_DIR/{}.sh'" --preview-window=down:60%:wrap
 }
 
-# Injects a snippet's body into a live tmux pane and runs it.
+# Types a snippet's body into a live tmux pane without submitting it — the
+# last line sits at the prompt for review/editing; you press Enter yourself.
+# (A multi-line snippet's earlier lines still contain real newlines, so
+# those lines run as they're typed — only the final line waits.)
 inject_snippet() {
   local pane="$1" file="$2" body
   body="$(cat "$file")"
   tmux send-keys -t "$pane" -l -- "$body"
-  tmux send-keys -t "$pane" Enter
 }
 
 # Invoked from the tmux popup keybinding: conn snip-popup '#{pane_id}'
