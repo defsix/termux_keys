@@ -41,7 +41,8 @@ conn — Termux SSH connection + snippet manager
   conn bind-key [KEY]            install a tmux popup keybinding (default: s)
 
   conn secret init               create an age identity for password holdouts
-  conn secret add HOST           encrypt a host password with age
+  conn secret add HOST           encrypt a host password with age (offers to
+                                  auto-install a key on your next connect)
   conn secret rm HOST            remove a stored secret
   conn secret ls                 list hosts with stored secrets
 
@@ -160,11 +161,17 @@ cmd_connect() {
   # only lives for the assignment statement. Running the whole thing through
   # `bash -c` re-parses it fresh, so the substitution stays valid.
   local cmd_str secret_file="$SECRET_DIR/$host.age"
+  local keyed_marker="$SECRET_DIR/$host.keyed"
+  local autokey_marker="$SECRET_DIR/$host.autokey"
 
-  if [[ -f "$secret_file" ]]; then
+  if [[ -f "$secret_file" && ! -f "$keyed_marker" ]]; then
     need_cmd age age
     need_cmd sshpass sshpass
     [[ -f "$AGE_IDENTITY" ]] || die "no age identity at $AGE_IDENTITY (run: conn secret init, or copy one from another device)"
+    [[ -f "$autokey_marker" ]] && maybe_bootstrap_key "$host" "$secret_file" "$keyed_marker"
+  fi
+
+  if [[ -f "$secret_file" && ! -f "$keyed_marker" ]]; then
     (( use_mosh )) && echo "conn: $host has a stored password; mosh needs key auth, using ssh instead" >&2
     cmd_str="$(printf 'sshpass -f <(age -d -i %q %q) ssh %q' "$AGE_IDENTITY" "$secret_file" "$host")"
   elif (( use_mosh )); then
@@ -219,9 +226,22 @@ cmd_add() {
   echo "conn: added Host '$alias' to $SSH_CONFIG"
 
   local use_pw
-  read -r -p "Store a password for '$alias' too (age-encrypted, for hosts that force password auth)? [y/N]: " use_pw
+  read -r -p "No key for '$alias' yet — only password auth for now? (stored age-encrypted) [y/N]: " use_pw
   if [[ "$use_pw" =~ ^[Yy] ]]; then
     cmd_secret_add "$alias"
+  fi
+}
+
+# Offers to auto-install this device's key on HOST using its stored password,
+# the first time `conn connect` runs against it — after that it stops needing
+# the password at all.
+offer_autokey() {
+  local host="$1" auto_key
+  read -r -p "Auto-install your SSH key on '$host' the first time you connect, so you won't need the password after that? [Y/n]: " auto_key
+  if [[ ! "$auto_key" =~ ^[Nn] ]]; then
+    ensure_default_key >/dev/null
+    touch "$SECRET_DIR/$host.autokey"
+    echo "conn: will install your key on '$host' automatically on your next connect"
   fi
 }
 
@@ -261,7 +281,7 @@ cmd_rm() {
   echo "conn: removed Host '$host' from $SSH_CONFIG"
 
   if [[ -f "$SECRET_DIR/$host.age" ]]; then
-    rm -f "$SECRET_DIR/$host.age"
+    rm -f "$SECRET_DIR/$host.age" "$SECRET_DIR/$host.keyed" "$SECRET_DIR/$host.autokey"
     echo "conn: removed stored secret for '$host'"
   fi
   if [[ -f "$SHORTCUTS_DIR/ssh-$host.sh" ]]; then
@@ -276,16 +296,23 @@ cmd_edit() {
   chmod 600 "$SSH_CONFIG"
 }
 
-cmd_keygen() {
-  need_cmd ssh-keygen openssh
+# Generates the default ed25519 key if it doesn't exist yet; always prints its path.
+ensure_default_key() {
   local key="$HOME/.ssh/id_ed25519"
   mkdir -p "$HOME/.ssh"; chmod 700 "$HOME/.ssh"
-  if [[ -f "$key" ]]; then
-    echo "conn: key already exists at $key"
-  else
+  if [[ ! -f "$key" ]]; then
+    need_cmd ssh-keygen openssh
     ssh-keygen -t ed25519 -N "" -C "termux" -f "$key"
     chmod 600 "$key"
   fi
+  printf '%s\n' "$key"
+}
+
+cmd_keygen() {
+  local key="$HOME/.ssh/id_ed25519" existed=0
+  [[ -f "$key" ]] && existed=1
+  ensure_default_key >/dev/null
+  (( existed )) && echo "conn: key already exists at $key"
   if [[ $# -gt 0 ]]; then
     need_cmd ssh-copy-id openssh
     for host in "$@"; do
@@ -293,6 +320,25 @@ cmd_keygen() {
     done
   else
     echo "conn: no hosts given — copy the key manually with: ssh-copy-id -i ${key}.pub HOST"
+  fi
+}
+
+# Uses the stored age-encrypted password to install this device's public key
+# on HOST via ssh-copy-id, so future connects can use key auth instead.
+# Never fails the caller: on any error, the password path is used as normal.
+maybe_bootstrap_key() {
+  local host="$1" secret_file="$2" keyed_marker="$3" pubkey
+  command -v ssh-copy-id >/dev/null 2>&1 || return 0
+  pubkey="$(ensure_default_key).pub"
+  echo "conn: installing your SSH key on '$host' so you won't need the password next time..." >&2
+  local copy_cmd
+  copy_cmd="$(printf 'sshpass -f <(age -d -i %q %q) ssh-copy-id -o StrictHostKeyChecking=accept-new -i %q %q' \
+    "$AGE_IDENTITY" "$secret_file" "$pubkey" "$host")"
+  if bash -c "$copy_cmd"; then
+    touch "$keyed_marker"
+    echo "conn: key installed on '$host' — future connects will skip the password" >&2
+  else
+    echo "conn: could not install the key automatically this time; continuing with the stored password" >&2
   fi
 }
 
@@ -454,12 +500,13 @@ cmd_secret_add() {
   printf '%s' "$pw" | age -r "$recipient" -o "$SECRET_DIR/$host.age"
   unset pw
   echo "conn: stored encrypted password for '$host' -> $SECRET_DIR/$host.age"
+  offer_autokey "$host"
 }
 
 cmd_secret_rm() {
   local host="${1:-}"
   [[ -n "$host" ]] || die "usage: conn secret rm HOST"
-  rm -f "$SECRET_DIR/$host.age"
+  rm -f "$SECRET_DIR/$host.age" "$SECRET_DIR/$host.keyed" "$SECRET_DIR/$host.autokey"
   echo "conn: removed stored secret for '$host'"
 }
 

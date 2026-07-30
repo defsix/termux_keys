@@ -203,6 +203,28 @@ exists for a host, `conn` falls straight through to plain key-based `ssh`.
 `-m`/mosh is ignored for password-only hosts (mosh needs a bootstrap over
 ssh, which needs a key); `conn` warns and uses `ssh` instead.
 
+#### Auto-installing a key so you stop needing the password
+
+Both `conn add`'s "no key yet, password only" prompt and standalone `conn
+secret add HOST` follow up with: *"Auto-install your SSH key on HOST the
+first time you connect, so you won't need the password after that?"*
+(default yes). Answering yes generates the default key on this device if it
+doesn't exist yet, and drops a `secrets/HOST.autokey` marker.
+
+The next time `conn connect HOST` runs, it uses the stored password to run
+`sshpass -f <(age -d ...) ssh-copy-id -i ~/.ssh/id_ed25519.pub HOST`
+automatically, installing the key before the session starts. On success it
+drops a `secrets/HOST.keyed` marker and that same connect proceeds over
+plain `ssh` (or `mosh`, if you asked for it) instead of the password path —
+every connect after that skips the stored password entirely. If the
+install fails (host unreachable, etc.) `conn` falls back to the password
+path for that session and retries the install next time.
+
+The bootstrap uses `ssh-copy-id -o StrictHostKeyChecking=accept-new`, which
+auto-accepts a host's key the first time it's seen (still refuses if a
+known host's key later changes) so the install doesn't stall waiting for a
+prompt you can't answer non-interactively.
+
 ### Termux:Widget launchers
 
 `conn widgetize` writes one `~/.shortcuts/ssh-<host>.sh` per `Host` alias in
