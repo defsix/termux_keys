@@ -27,8 +27,10 @@ usage() {
   cat <<'EOF'
 conn — Termux SSH connection + snippet manager
 
-  conn [connect] [-m] [HOST]     connect (fzf-pick HOST if omitted; -m = mosh)
+  conn [connect] [-m] [HOST|N]   connect (fzf-pick, or by number, if HOST omitted; -m = mosh)
+  conn list                      list hosts, numbered and grouped
   conn add                       append a Host block to ~/.ssh/config
+  conn rm [HOST|N]               remove a Host (+ its secret/widget) from ~/.ssh/config
   conn edit                      open ~/.ssh/config in $EDITOR
   conn keygen [HOST...]          generate an ed25519 key, ssh-copy-id to HOSTs
 
@@ -55,21 +57,84 @@ EOF
 
 # --- ssh config helpers -----------------------------------------------
 
-list_hosts() {
+# Emits "alias<TAB>group" per non-wildcard Host alias, in config file order.
+# A comment line "# Group: NAME" tags every Host block that follows it,
+# until the next such comment (or "# Group: " with nothing after the colon,
+# which resets to ungrouped).
+list_hosts_meta() {
   [[ -f "$SSH_CONFIG" ]] || return 0
-  awk 'tolower($1) == "host" {
-    for (i = 2; i <= NF; i++) {
-      if ($i !~ /[*?]/) print $i
+  awk '
+    {
+      lower = tolower($0)
+      if (lower ~ /^[ \t]*#[ \t]*group[ \t]*:/) {
+        line = $0
+        sub(/^[^:]*:/, "", line)
+        sub(/^[ \t]+/, "", line)
+        sub(/[ \t]+$/, "", line)
+        group = line
+        next
+      }
+      if (tolower($1) == "host") {
+        for (i = 2; i <= NF; i++) {
+          if ($i !~ /[*?]/) printf "%s\t%s\n", $i, group
+        }
+      }
     }
-  }' "$SSH_CONFIG"
+  ' "$SSH_CONFIG"
+}
+
+list_hosts() {
+  list_hosts_meta | cut -f1
+}
+
+# Populates HOST_ALIASES / HOST_GROUPS / HOST_LINES (1-indexed, numbered
+# "N) [group] alias" display strings) from the current ssh config.
+load_host_index() {
+  HOST_ALIASES=()
+  HOST_GROUPS=()
+  HOST_LINES=()
+  local alias group n=0
+  while IFS=$'\t' read -r alias group; do
+    [[ -n "$alias" ]] || continue
+    n=$((n + 1))
+    HOST_ALIASES+=("$alias")
+    HOST_GROUPS+=("$group")
+    if [[ -n "$group" ]]; then
+      HOST_LINES+=("$(printf '%2d) [%s] %s' "$n" "$group" "$alias")")
+    else
+      HOST_LINES+=("$(printf '%2d) %s' "$n" "$alias")")
+    fi
+  done < <(list_hosts_meta)
+}
+
+# Resolves a 1-indexed number (as printed by `conn list` / the picker) to its alias.
+host_by_number() {
+  local n="$1"
+  load_host_index
+  (( n >= 1 && n <= ${#HOST_ALIASES[@]} )) || die "no host numbered $n (run: conn list)"
+  printf '%s\n' "${HOST_ALIASES[$((n - 1))]}"
 }
 
 pick_host() {
   need_cmd fzf fzf
-  local hosts
-  hosts="$(list_hosts)"
-  [[ -n "$hosts" ]] || die "no hosts in $SSH_CONFIG yet — run: conn add"
-  printf '%s\n' "$hosts" | fzf --prompt='connect> ' --height='~40%' --reverse
+  load_host_index
+  [[ ${#HOST_ALIASES[@]} -gt 0 ]] || die "no hosts in $SSH_CONFIG yet — run: conn add"
+  local sel idx
+  sel="$(printf '%s\n' "${HOST_LINES[@]}" | fzf --prompt='connect> ' --height='~40%' --reverse)"
+  [[ -n "$sel" ]] || return 1
+  idx="${sel%%)*}"
+  idx="${idx//[[:space:]]/}"
+  [[ "$idx" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "${HOST_ALIASES[$((idx - 1))]}"
+}
+
+cmd_list() {
+  load_host_index
+  if [[ ${#HOST_ALIASES[@]} -eq 0 ]]; then
+    echo "conn: no hosts in $SSH_CONFIG yet — run: conn add"
+    return
+  fi
+  printf '%s\n' "${HOST_LINES[@]}"
 }
 
 # --- connect ------------------------------------------------------------
@@ -87,6 +152,7 @@ cmd_connect() {
   done
   [[ -n "$host" ]] || host="$(pick_host)"
   [[ -n "$host" ]] || exit 1
+  [[ "$host" =~ ^[0-9]+$ ]] && host="$(host_by_number "$host")"
 
   # Built as a shell-syntax string (not a bash array) because the age/sshpass
   # path needs a literal `<(...)` process substitution: an array assigned
@@ -122,7 +188,7 @@ cmd_connect() {
 
 cmd_add() {
   ensure_dirs
-  local alias hostname user port identity
+  local alias hostname user port identity group
   read -r -p "Alias (Host name, e.g. myserver): " alias
   [[ -n "$alias" ]] || die "alias is required"
   read -r -p "HostName (IP or DNS name): " hostname
@@ -133,9 +199,17 @@ cmd_add() {
   port="${port:-22}"
   read -r -p "IdentityFile [~/.ssh/id_ed25519]: " identity
   identity="${identity:-~/.ssh/id_ed25519}"
+  read -r -p "Group (optional, e.g. work): " group
+
+  local last_group
+  last_group="$(list_hosts_meta | tail -n1 | cut -f2)"
 
   {
-    printf '\nHost %s\n' "$alias"
+    printf '\n'
+    if [[ "$group" != "$last_group" ]]; then
+      printf '# Group: %s\n' "$group"
+    fi
+    printf 'Host %s\n' "$alias"
     printf '    HostName %s\n' "$hostname"
     printf '    User %s\n' "$user"
     printf '    Port %s\n' "$port"
@@ -148,6 +222,51 @@ cmd_add() {
   read -r -p "Store a password for '$alias' too (age-encrypted, for hosts that force password auth)? [y/N]: " use_pw
   if [[ "$use_pw" =~ ^[Yy] ]]; then
     cmd_secret_add "$alias"
+  fi
+}
+
+cmd_rm() {
+  local host="${1:-}"
+  [[ -n "$host" ]] || host="$(pick_host)"
+  [[ -n "$host" ]] || exit 1
+  [[ "$host" =~ ^[0-9]+$ ]] && host="$(host_by_number "$host")"
+  list_hosts | grep -qxF "$host" || die "no such host: $host"
+
+  local tmp
+  tmp="$(mktemp "${SSH_CONFIG}.XXXXXX")"
+  awk -v target="$host" '
+    BEGIN { skip = 0 }
+    {
+      line = $0
+      if (line ~ /^[Hh]ost[ \t]+/) {
+        skip = 0
+        n = split(line, toks, /[ \t]+/)
+        matched = 0
+        rest = "Host"
+        for (i = 2; i <= n; i++) {
+          if (toks[i] == target) matched = 1
+          else rest = rest " " toks[i]
+        }
+        if (matched && rest == "Host") { skip = 1; next }
+        if (matched) { print rest; next }
+      } else if (skip) {
+        if (line ~ /^[ \t]*$/ || line ~ /^[ \t]/) next
+        skip = 0
+      }
+      print line
+    }
+  ' "$SSH_CONFIG" > "$tmp"
+  mv "$tmp" "$SSH_CONFIG"
+  chmod 600 "$SSH_CONFIG"
+  echo "conn: removed Host '$host' from $SSH_CONFIG"
+
+  if [[ -f "$SECRET_DIR/$host.age" ]]; then
+    rm -f "$SECRET_DIR/$host.age"
+    echo "conn: removed stored secret for '$host'"
+  fi
+  if [[ -f "$SHORTCUTS_DIR/ssh-$host.sh" ]]; then
+    rm -f "$SHORTCUTS_DIR/ssh-$host.sh"
+    echo "conn: removed widget shortcut for '$host'"
   fi
 }
 
@@ -482,7 +601,9 @@ main() {
   [[ $# -gt 0 ]] && shift || true
   case "$cmd" in
     connect) cmd_connect "$@" ;;
+    list) cmd_list "$@" ;;
     add) cmd_add "$@" ;;
+    rm|delete) cmd_rm "$@" ;;
     edit) cmd_edit "$@" ;;
     keygen) cmd_keygen "$@" ;;
     snip) cmd_snip "$@" ;;

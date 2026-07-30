@@ -49,7 +49,7 @@ conn keygen                 # generate a passphraseless ed25519 key
 conn add                    # add a Host to ~/.ssh/config (prompts for alias/HostName/User/Port)
 conn keygen myserver        # ssh-copy-id the key to that host
 conn connect                # fzf-pick a host and connect (drops you into tmux)
-conn bind-key                # install the prefix+s snippet-popup tmux keybinding
+conn bind-key               # install the prefix+s snippet-popup tmux keybinding
 ```
 
 Then, inside any session started by `conn`:
@@ -64,8 +64,10 @@ typed (and run) in the pane you were just in.
 ## Commands
 
 ```
-conn [connect] [-m] [HOST]     connect (fzf-pick HOST if omitted; -m = mosh)
+conn [connect] [-m] [HOST|N]   connect (fzf-pick, or by number, if HOST omitted; -m = mosh)
+conn list                      list hosts, numbered and grouped
 conn add                       append a Host block to ~/.ssh/config
+conn rm [HOST|N]               remove a Host (+ its secret/widget) from ~/.ssh/config
 conn edit                      open ~/.ssh/config in $EDITOR
 conn keygen [HOST...]          generate an ed25519 key, ssh-copy-id to HOSTs
 
@@ -101,6 +103,37 @@ the `Host` aliases in the file, skipping any wildcard (`*`/`?`) patterns.
 host — answering yes runs the same `age`-encrypted flow as `conn secret add`
 (see below), so a password-only host can be fully set up in one pass instead
 of two commands.
+
+`conn rm [HOST|N]` removes a `Host` block (fzf-pick, or by number, if
+omitted), along with any stored `age` secret and Termux:Widget shortcut for
+that host.
+
+### Numbering and groups
+
+`conn list` prints every host as a numbered, grouped line:
+
+```
+ 1) [work] web1
+ 2) [work] web2
+ 3) [personal] phone
+ 4) loose
+```
+
+The same numbers appear in the `conn connect` / `conn rm` fzf picker, and
+`conn connect N` (or the shorthand `conn N`) connects straight to the Nth
+host, skipping fzf entirely — handy for muscle-memory quick launches.
+Numbers are just the current listing order, so they can shift as hosts are
+added or removed; run `conn list` again if unsure.
+
+`conn add` asks for an optional **Group** name. Groups are stored as a plain
+`# Group: NAME` comment in `~/.ssh/config`, immediately before the `Host`
+block(s) it covers — `ssh` ignores comments entirely, so this has zero effect
+on how connections actually work. A group heading applies to every `Host`
+that follows it until the next `# Group:` comment (or `# Group: ` with
+nothing after the colon, which resets to ungrouped); `conn add` only writes
+a new heading when the group actually changes from the previous entry, so
+consecutive hosts in the same group don't repeat it. You can also add or
+edit `# Group:` headings by hand via `conn edit`.
 
 ### Auth defaults to passphraseless ed25519 keys
 
