@@ -143,6 +143,12 @@ cmd_add() {
   } >> "$SSH_CONFIG"
   chmod 600 "$SSH_CONFIG"
   echo "conn: added Host '$alias' to $SSH_CONFIG"
+
+  local use_pw
+  read -r -p "Store a password for '$alias' too (age-encrypted, for hosts that force password auth)? [y/N]: " use_pw
+  if [[ "$use_pw" =~ ^[Yy] ]]; then
+    cmd_secret_add "$alias"
+  fi
 }
 
 cmd_edit() {

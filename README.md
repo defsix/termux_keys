@@ -80,6 +80,11 @@ Nothing proprietary — `ssh` reads it natively, so `ProxyJump`, per-host keys,
 opens the file in `$EDITOR` directly. `conn connect` (no args) fzf-picks from
 the `Host` aliases in the file, skipping any wildcard (`*`/`?`) patterns.
 
+`conn add` also asks, at the end, whether to store a password for the new
+host — answering yes runs the same `age`-encrypted flow as `conn secret add`
+(see below), so a password-only host can be fully set up in one pass instead
+of two commands.
+
 ### Auth defaults to passphraseless ed25519 keys
 
 `conn keygen` runs `ssh-keygen -t ed25519 -N "" -C "termux"` and, if given
