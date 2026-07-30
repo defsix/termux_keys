@@ -16,7 +16,7 @@ Everything else in this repo exists to make those two things work.
 ## Install
 
 ```
-pkg install fzf openssh tmux mosh age sshpass git termux-api
+pkg install fzf openssh tmux mosh age sshpass git nano termux-api
 ./install.sh
 ```
 
@@ -268,11 +268,12 @@ devices, or physically).
 
 Required: `bash`, `fzf`, `openssh`, `tmux`.
 Optional: `mosh` (better mobile connections), `age` + `sshpass` (password
-holdouts), `termux-api` (clipboard), `git` (sync), the Termux:Widget add-on
-(home-screen launchers).
+holdouts), `termux-api` (clipboard), `git` (sync), `nano` (default editor
+for `conn add`/`conn edit`/`conn snip add` — set `$EDITOR` to override), the
+Termux:Widget add-on (home-screen launchers).
 
 ```
-pkg install fzf openssh tmux mosh age sshpass git termux-api
+pkg install fzf openssh tmux mosh age sshpass git nano termux-api
 ```
 
 ## Non-goals

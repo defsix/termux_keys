@@ -292,7 +292,7 @@ cmd_rm() {
 
 cmd_edit() {
   ensure_dirs
-  "${EDITOR:-vi}" "$SSH_CONFIG"
+  "${EDITOR:-nano}" "$SSH_CONFIG"
   chmod 600 "$SSH_CONFIG"
 }
 
@@ -352,7 +352,7 @@ cmd_snip_add() {
   ensure_dirs
   file="$(snip_file "$name")"
   [[ -f "$file" ]] || printf '# %s\n' "$name" > "$file"
-  "${EDITOR:-vi}" "$file"
+  "${EDITOR:-nano}" "$file"
   echo "conn: saved snippet '$name' -> $file"
 }
 
@@ -664,6 +664,7 @@ cmd_doctor() {
   check age age
   check sshpass sshpass
   check git git
+  check nano nano
   check termux-clipboard-set termux-api
   [[ -f "$SSH_CONFIG" ]] && echo "  [x] $SSH_CONFIG exists" || echo "  [ ] $SSH_CONFIG missing (run: conn add)"
   (( ok )) || die "missing required dependencies"
