@@ -226,7 +226,7 @@ cmd_add() {
   echo "conn: added Host '$alias' to $SSH_CONFIG"
 
   local use_pw
-  read -r -p "No key for '$alias' yet — only password auth for now? (stored age-encrypted) [y/N]: " use_pw
+  read -r -p "No key — password only? [y/N]: " use_pw
   if [[ "$use_pw" =~ ^[Yy] ]]; then
     cmd_secret_add "$alias"
   fi
@@ -237,7 +237,7 @@ cmd_add() {
 # the password at all.
 offer_autokey() {
   local host="$1" auto_key
-  read -r -p "Auto-install your SSH key on '$host' the first time you connect, so you won't need the password after that? [Y/n]: " auto_key
+  read -r -p "No key added — create one and use it next time? [Y/n]: " auto_key
   if [[ ! "$auto_key" =~ ^[Nn] ]]; then
     ensure_default_key >/dev/null
     touch "$SECRET_DIR/$host.autokey"

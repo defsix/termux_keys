@@ -205,11 +205,10 @@ ssh, which needs a key); `conn` warns and uses `ssh` instead.
 
 #### Auto-installing a key so you stop needing the password
 
-Both `conn add`'s "no key yet, password only" prompt and standalone `conn
-secret add HOST` follow up with: *"Auto-install your SSH key on HOST the
-first time you connect, so you won't need the password after that?"*
-(default yes). Answering yes generates the default key on this device if it
-doesn't exist yet, and drops a `secrets/HOST.autokey` marker.
+Both `conn add`'s "No key — password only?" prompt and standalone `conn
+secret add HOST` follow up with: *"No key added — create one and use it
+next time?"* (default yes). Answering yes generates the default key on this
+device if it doesn't exist yet, and drops a `secrets/HOST.autokey` marker.
 
 The next time `conn connect HOST` runs, it uses the stored password to run
 `sshpass -f <(age -d ...) ssh-copy-id -i ~/.ssh/id_ed25519.pub HOST`
