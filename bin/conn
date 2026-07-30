@@ -12,6 +12,15 @@ SSH_CONFIG="${CONN_SSH_CONFIG:-$HOME/.ssh/config}"
 TMUX_CONF="${CONN_TMUX_CONF:-$HOME/.tmux.conf}"
 SHORTCUTS_DIR="${CONN_SHORTCUTS_DIR:-$HOME/.shortcuts}"
 
+# Internal field separator for host metadata records (alias/group/user/
+# hostname). Deliberately NOT a tab: bash's IFS-whitespace splitting
+# coalesces consecutive tab delimiters, silently dropping/shifting an
+# empty middle field (e.g. an ungrouped host's empty group column) —
+# verified with `printf 'a\t\tc\td\n' | { IFS=$'\t' read -r a b c d; }`
+# misparsing into a=a b=c c=d d=(empty). Unit separator (0x1F) has no
+# such special-casing.
+SEP=$'\x1f'
+
 die() { printf 'conn: %s\n' "$*" >&2; exit 1; }
 
 need_cmd() {
@@ -67,7 +76,7 @@ EOF
 # so it's cheap to call just to inspect grouping (see cmd_add).
 list_hosts_meta_raw() {
   [[ -f "$SSH_CONFIG" ]] || return 0
-  awk '
+  awk -v sep="$SEP" '
     {
       lower = tolower($0)
       if (lower ~ /^[ \t]*#[ \t]*group[ \t]*:/) {
@@ -80,29 +89,29 @@ list_hosts_meta_raw() {
       }
       if (tolower($1) == "host") {
         for (i = 2; i <= NF; i++) {
-          if ($i !~ /[*?]/) printf "%s\t%s\n", $i, group
+          if ($i !~ /[*?]/) printf "%s%s%s\n", $i, sep, group
         }
       }
     }
   ' "$SSH_CONFIG"
 }
 
-# alias\tgroup\tuser\thostname — the last two via `ssh -G`, which resolves
-# ssh's actual computed config (defaults, Match blocks, etc.) rather than us
-# re-parsing the file by hand.
+# alias<SEP>group<SEP>user<SEP>hostname — the last two via `ssh -G`, which
+# resolves ssh's actual computed config (defaults, Match blocks, etc.)
+# rather than us re-parsing the file by hand.
 list_hosts_meta() {
   local alias group resolved user hostname
-  while IFS=$'\t' read -r alias group; do
+  while IFS="$SEP" read -r alias group; do
     [[ -n "$alias" ]] || continue
     resolved="$(ssh -G "$alias" 2>/dev/null)"
     user="$(printf '%s\n' "$resolved" | awk '$1 == "user" { print $2; exit }')"
     hostname="$(printf '%s\n' "$resolved" | awk '$1 == "hostname" { print $2; exit }')"
-    printf '%s\t%s\t%s\t%s\n' "$alias" "$group" "$user" "$hostname"
+    printf '%s%s%s%s%s%s%s\n' "$alias" "$SEP" "$group" "$SEP" "$user" "$SEP" "$hostname"
   done < <(list_hosts_meta_raw)
 }
 
 list_hosts() {
-  list_hosts_meta_raw | cut -f1
+  list_hosts_meta_raw | cut -d "$SEP" -f1
 }
 
 # Populates HOST_ALIASES / HOST_GROUPS / HOST_LINES (1-indexed, numbered
@@ -115,7 +124,7 @@ load_host_index() {
   HOST_GROUPS=()
   HOST_LINES=()
   local alias group user hostname target n=0
-  while IFS=$'\t' read -r alias group user hostname; do
+  while IFS="$SEP" read -r alias group user hostname; do
     [[ -n "$alias" ]] || continue
     n=$((n + 1))
     HOST_ALIASES+=("$alias")
@@ -235,7 +244,7 @@ cmd_add() {
   read -r -p "Group (optional, e.g. work): " group
 
   local last_group
-  last_group="$(list_hosts_meta_raw | tail -n1 | cut -f2)"
+  last_group="$(list_hosts_meta_raw | tail -n1 | cut -d "$SEP" -f2)"
 
   {
     printf '\n'
