@@ -1,0 +1,501 @@
+#!/usr/bin/env bash
+# conn — Termux SSH connection + snippet manager (JuiceSSH replacement)
+set -euo pipefail
+
+CONN_HOME="${CONN_HOME:-$HOME/.config/conn}"
+SNIP_DIR="$CONN_HOME/snippets"
+SECRET_DIR="$CONN_HOME/secrets"
+AGE_DIR="$CONN_HOME/age"
+AGE_IDENTITY="${CONN_AGE_IDENTITY:-$AGE_DIR/identity.txt}"
+AGE_RECIPIENT_FILE="$AGE_DIR/recipient.txt"
+SSH_CONFIG="${CONN_SSH_CONFIG:-$HOME/.ssh/config}"
+TMUX_CONF="${CONN_TMUX_CONF:-$HOME/.tmux.conf}"
+SHORTCUTS_DIR="${CONN_SHORTCUTS_DIR:-$HOME/.shortcuts}"
+
+die() { printf 'conn: %s\n' "$*" >&2; exit 1; }
+
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || die "missing dependency: $1 (try: pkg install $2)"
+}
+
+ensure_dirs() {
+  mkdir -p "$SNIP_DIR" "$SECRET_DIR" "$AGE_DIR"
+  [[ -f "$SSH_CONFIG" ]] || { mkdir -p "$(dirname "$SSH_CONFIG")"; : > "$SSH_CONFIG"; chmod 600 "$SSH_CONFIG"; }
+}
+
+usage() {
+  cat <<'EOF'
+conn — Termux SSH connection + snippet manager
+
+  conn [connect] [-m] [HOST]     connect (fzf-pick HOST if omitted; -m = mosh)
+  conn add                       append a Host block to ~/.ssh/config
+  conn edit                      open ~/.ssh/config in $EDITOR
+  conn keygen [HOST...]          generate an ed25519 key, ssh-copy-id to HOSTs
+
+  conn snip add NAME             create/edit a snippet
+  conn snip ls                   list snippets
+  conn snip rm NAME              delete a snippet
+  conn snip [NAME]               pick a snippet, then copy / run local / run on host
+  conn bind-key [KEY]            install a tmux popup keybinding (default: s)
+
+  conn secret init               create an age identity for password holdouts
+  conn secret add HOST           encrypt a host password with age
+  conn secret rm HOST            remove a stored secret
+  conn secret ls                 list hosts with stored secrets
+
+  conn widgetize                 generate Termux:Widget launcher scripts
+  conn sync init                 create a git repo for snippets + secrets
+  conn sync remote URL           set the sync repo's remote
+  conn sync [push|pull]          commit + push/pull the sync repo
+
+  conn doctor                    check for required/optional dependencies
+  conn help                      show this message
+EOF
+}
+
+# --- ssh config helpers -----------------------------------------------
+
+list_hosts() {
+  [[ -f "$SSH_CONFIG" ]] || return 0
+  awk 'tolower($1) == "host" {
+    for (i = 2; i <= NF; i++) {
+      if ($i !~ /[*?]/) print $i
+    }
+  }' "$SSH_CONFIG"
+}
+
+pick_host() {
+  need_cmd fzf fzf
+  local hosts
+  hosts="$(list_hosts)"
+  [[ -n "$hosts" ]] || die "no hosts in $SSH_CONFIG yet — run: conn add"
+  printf '%s\n' "$hosts" | fzf --prompt='connect> ' --height='~40%' --reverse
+}
+
+# --- connect ------------------------------------------------------------
+
+cmd_connect() {
+  local use_mosh=0 host=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -m|--mosh) use_mosh=1; shift ;;
+      -h|--help) usage; exit 0 ;;
+      --) shift; break ;;
+      -*) die "unknown flag: $1" ;;
+      *) host="$1"; shift ;;
+    esac
+  done
+  [[ -n "$host" ]] || host="$(pick_host)"
+  [[ -n "$host" ]] || exit 1
+
+  # Built as a shell-syntax string (not a bash array) because the age/sshpass
+  # path needs a literal `<(...)` process substitution: an array assigned
+  # now and exec'd later closes that fd before use, since the substitution
+  # only lives for the assignment statement. Running the whole thing through
+  # `bash -c` re-parses it fresh, so the substitution stays valid.
+  local cmd_str secret_file="$SECRET_DIR/$host.age"
+
+  if [[ -f "$secret_file" ]]; then
+    need_cmd age age
+    need_cmd sshpass sshpass
+    [[ -f "$AGE_IDENTITY" ]] || die "no age identity at $AGE_IDENTITY (run: conn secret init, or copy one from another device)"
+    (( use_mosh )) && echo "conn: $host has a stored password; mosh needs key auth, using ssh instead" >&2
+    cmd_str="$(printf 'sshpass -f <(age -d -i %q %q) ssh %q' "$AGE_IDENTITY" "$secret_file" "$host")"
+  elif (( use_mosh )); then
+    need_cmd mosh mosh
+    cmd_str="$(printf 'mosh %q' "$host")"
+  else
+    need_cmd ssh openssh
+    cmd_str="$(printf 'ssh %q' "$host")"
+  fi
+
+  if [[ -n "${TMUX:-}" ]]; then
+    exec bash -c "$cmd_str"
+  fi
+
+  need_cmd tmux tmux
+  local session="conn-${host//[.:]/-}"
+  exec tmux new-session -A -s "$session" "$cmd_str"
+}
+
+# --- add / edit / keygen -------------------------------------------------
+
+cmd_add() {
+  ensure_dirs
+  local alias hostname user port identity
+  read -r -p "Alias (Host name, e.g. myserver): " alias
+  [[ -n "$alias" ]] || die "alias is required"
+  read -r -p "HostName (IP or DNS name): " hostname
+  [[ -n "$hostname" ]] || die "HostName is required"
+  read -r -p "User [$(id -un)]: " user
+  user="${user:-$(id -un)}"
+  read -r -p "Port [22]: " port
+  port="${port:-22}"
+  read -r -p "IdentityFile [~/.ssh/id_ed25519]: " identity
+  identity="${identity:-~/.ssh/id_ed25519}"
+
+  {
+    printf '\nHost %s\n' "$alias"
+    printf '    HostName %s\n' "$hostname"
+    printf '    User %s\n' "$user"
+    printf '    Port %s\n' "$port"
+    printf '    IdentityFile %s\n' "$identity"
+  } >> "$SSH_CONFIG"
+  chmod 600 "$SSH_CONFIG"
+  echo "conn: added Host '$alias' to $SSH_CONFIG"
+}
+
+cmd_edit() {
+  ensure_dirs
+  "${EDITOR:-vi}" "$SSH_CONFIG"
+  chmod 600 "$SSH_CONFIG"
+}
+
+cmd_keygen() {
+  need_cmd ssh-keygen openssh
+  local key="$HOME/.ssh/id_ed25519"
+  mkdir -p "$HOME/.ssh"; chmod 700 "$HOME/.ssh"
+  if [[ -f "$key" ]]; then
+    echo "conn: key already exists at $key"
+  else
+    ssh-keygen -t ed25519 -N "" -C "termux" -f "$key"
+    chmod 600 "$key"
+  fi
+  if [[ $# -gt 0 ]]; then
+    need_cmd ssh-copy-id openssh
+    for host in "$@"; do
+      ssh-copy-id -i "${key}.pub" "$host"
+    done
+  else
+    echo "conn: no hosts given — copy the key manually with: ssh-copy-id -i ${key}.pub HOST"
+  fi
+}
+
+# --- snippets -------------------------------------------------------------
+
+snip_file() { printf '%s/%s.sh' "$SNIP_DIR" "$1"; }
+
+cmd_snip_add() {
+  local name="$1" file
+  [[ -n "$name" ]] || die "usage: conn snip add NAME"
+  ensure_dirs
+  file="$(snip_file "$name")"
+  [[ -f "$file" ]] || printf '# %s\n' "$name" > "$file"
+  "${EDITOR:-vi}" "$file"
+  echo "conn: saved snippet '$name' -> $file"
+}
+
+cmd_snip_ls() {
+  ensure_dirs
+  local f
+  shopt -s nullglob
+  for f in "$SNIP_DIR"/*.sh; do
+    basename "$f" .sh
+  done
+  shopt -u nullglob
+}
+
+cmd_snip_rm() {
+  local name="$1" file
+  [[ -n "$name" ]] || die "usage: conn snip rm NAME"
+  file="$(snip_file "$name")"
+  [[ -f "$file" ]] || die "no such snippet: $name"
+  rm -f "$file"
+  echo "conn: removed snippet '$name'"
+}
+
+pick_snippet() {
+  need_cmd fzf fzf
+  local names
+  names="$(cmd_snip_ls)"
+  [[ -n "$names" ]] || die "no snippets yet — run: conn snip add NAME"
+  printf '%s\n' "$names" | fzf --prompt='snippet> ' --height='~40%' --reverse \
+    --preview="cat '$SNIP_DIR/{}.sh'" --preview-window=down:60%:wrap
+}
+
+# Injects a snippet's body into a live tmux pane and runs it.
+inject_snippet() {
+  local pane="$1" file="$2" body
+  body="$(cat "$file")"
+  tmux send-keys -t "$pane" -l -- "$body"
+  tmux send-keys -t "$pane" Enter
+}
+
+# Invoked from the tmux popup keybinding: conn snip-popup '#{pane_id}'
+cmd_snip_popup() {
+  local pane="${1:?internal: missing target pane}" name file
+  name="$(pick_snippet)" || exit 0
+  [[ -n "$name" ]] || exit 0
+  file="$(snip_file "$name")"
+  inject_snippet "$pane" "$file"
+}
+
+cmd_snip_action() {
+  local name="${1:-}" file body choice
+  [[ -n "$name" ]] || name="$(pick_snippet)"
+  [[ -n "$name" ]] || exit 0
+  file="$(snip_file "$name")"
+  [[ -f "$file" ]] || die "no such snippet: $name"
+  body="$(cat "$file")"
+
+  if [[ -n "${TMUX:-}" ]]; then
+    choice="$(printf 'copy\nrun local\nrun on host\ninject into pane\n' | fzf --prompt="$name> " --height='~30%' --reverse)"
+  else
+    choice="$(printf 'copy\nrun local\nrun on host\n' | fzf --prompt="$name> " --height='~30%' --reverse)"
+  fi
+
+  case "$choice" in
+    copy)
+      if command -v termux-clipboard-set >/dev/null 2>&1; then
+        printf '%s' "$body" | termux-clipboard-set
+        echo "conn: copied '$name' to clipboard"
+      else
+        echo "conn: termux-clipboard-set not found; snippet body:"
+        printf '%s\n' "$body"
+      fi
+      ;;
+    "run local")
+      bash "$file"
+      ;;
+    "run on host")
+      local host
+      host="$(pick_host)"
+      [[ -n "$host" ]] || exit 0
+      need_cmd ssh openssh
+      ssh "$host" "$body"
+      ;;
+    "inject into pane")
+      inject_snippet "$TMUX_PANE" "$file"
+      ;;
+    *) exit 0 ;;
+  esac
+}
+
+cmd_snip() {
+  local sub="${1:-}"
+  case "$sub" in
+    add) cmd_snip_add "${2:-}" ;;
+    ls) cmd_snip_ls ;;
+    rm) cmd_snip_rm "${2:-}" ;;
+    "") cmd_snip_action ;;
+    *) cmd_snip_action "$sub" ;;
+  esac
+}
+
+cmd_bind_key() {
+  local key="${1:-s}"
+  ensure_dirs
+  [[ -f "$TMUX_CONF" ]] || : > "$TMUX_CONF"
+  if grep -q "conn snip-popup" "$TMUX_CONF" 2>/dev/null; then
+    echo "conn: tmux binding already present in $TMUX_CONF (edit it by hand to change the key)"
+    return
+  fi
+  {
+    printf '\n# conn: snippet picker popup (added by "conn bind-key")\n'
+    printf 'bind-key %s display-popup -E -w 80%% -h 70%% "conn snip-popup '"'"'#{pane_id}'"'"'"\n' "$key"
+  } >> "$TMUX_CONF"
+  echo "conn: bound prefix+$key to the snippet popup in $TMUX_CONF"
+  echo "conn: reload tmux config with: tmux source-file $TMUX_CONF"
+}
+
+# --- secrets (age password holdouts) --------------------------------------
+
+age_recipient() {
+  [[ -f "$AGE_RECIPIENT_FILE" ]] || die "no age recipient at $AGE_RECIPIENT_FILE — run: conn secret init"
+  cat "$AGE_RECIPIENT_FILE"
+}
+
+cmd_secret_init() {
+  need_cmd age-keygen age
+  ensure_dirs
+  [[ -f "$AGE_IDENTITY" ]] && die "identity already exists: $AGE_IDENTITY"
+  age-keygen -o "$AGE_IDENTITY" 2>/dev/null
+  chmod 600 "$AGE_IDENTITY"
+  grep '^# public key:' "$AGE_IDENTITY" | awk '{print $NF}' > "$AGE_RECIPIENT_FILE"
+  echo "conn: created age identity at $AGE_IDENTITY (never sync this file)"
+  echo "conn: recipient (public, safe to sync) saved to $AGE_RECIPIENT_FILE"
+}
+
+cmd_secret_add() {
+  local host="${1:-}" recipient pw
+  [[ -n "$host" ]] || die "usage: conn secret add HOST"
+  need_cmd age age
+  ensure_dirs
+  [[ -f "$AGE_RECIPIENT_FILE" ]] || cmd_secret_init
+  recipient="$(age_recipient)"
+  read -r -s -p "Password for $host: " pw
+  echo
+  [[ -n "$pw" ]] || die "empty password, aborting"
+  printf '%s' "$pw" | age -r "$recipient" -o "$SECRET_DIR/$host.age"
+  unset pw
+  echo "conn: stored encrypted password for '$host' -> $SECRET_DIR/$host.age"
+}
+
+cmd_secret_rm() {
+  local host="${1:-}"
+  [[ -n "$host" ]] || die "usage: conn secret rm HOST"
+  rm -f "$SECRET_DIR/$host.age"
+  echo "conn: removed stored secret for '$host'"
+}
+
+cmd_secret_ls() {
+  ensure_dirs
+  local f
+  shopt -s nullglob
+  for f in "$SECRET_DIR"/*.age; do
+    basename "$f" .age
+  done
+  shopt -u nullglob
+}
+
+cmd_secret() {
+  local sub="${1:-}"
+  case "$sub" in
+    init) cmd_secret_init ;;
+    add) cmd_secret_add "${2:-}" ;;
+    rm) cmd_secret_rm "${2:-}" ;;
+    ls) cmd_secret_ls ;;
+    *) die "usage: conn secret {init|add HOST|rm HOST|ls}" ;;
+  esac
+}
+
+# --- widgetize --------------------------------------------------------------
+
+cmd_widgetize() {
+  local hosts host script
+  hosts="$(list_hosts)"
+  [[ -n "$hosts" ]] || die "no hosts in $SSH_CONFIG yet — run: conn add"
+  mkdir -p "$SHORTCUTS_DIR"
+  while IFS= read -r host; do
+    script="$SHORTCUTS_DIR/ssh-$host.sh"
+    {
+      printf '#!/data/data/com.termux/files/usr/bin/bash\n'
+      printf 'exec conn connect %q\n' "$host"
+    } > "$script"
+    chmod +x "$script"
+    echo "conn: wrote $script"
+  done <<< "$hosts"
+  cat <<'EOF'
+
+conn: install Termux:Widget from the SAME source as Termux itself
+(F-Droid or GitHub — plugins must share Termux's signing key), then
+long-press your home screen -> Widgets -> Termux:Widget, and pick one
+of the shortcuts above.
+EOF
+}
+
+# --- sync ---------------------------------------------------------------
+
+cmd_sync() {
+  ensure_dirs
+  need_cmd git git
+  local sub="${1:-}"
+  case "$sub" in
+    init)
+      if git -C "$CONN_HOME" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        echo "conn: $CONN_HOME is already a git repo"
+      else
+        git -C "$CONN_HOME" init
+        cat > "$CONN_HOME/.gitignore" <<'EOF'
+# never sync the decryption key
+age/identity.txt
+# never sync private keys, only public halves
+id_*
+!id_*.pub
+*.pem
+EOF
+        git -C "$CONN_HOME" add snippets secrets .gitignore 2>/dev/null || true
+        [[ -f "$AGE_RECIPIENT_FILE" ]] && git -C "$CONN_HOME" add "$AGE_RECIPIENT_FILE"
+        git -C "$CONN_HOME" commit -m "conn: initial sync repo" || true
+        echo "conn: initialized sync repo at $CONN_HOME"
+        echo "conn: set a remote with: conn sync remote <url>"
+      fi
+      ;;
+    remote)
+      local url="${2:?usage: conn sync remote URL}"
+      if git -C "$CONN_HOME" remote get-url origin >/dev/null 2>&1; then
+        git -C "$CONN_HOME" remote set-url origin "$url"
+      else
+        git -C "$CONN_HOME" remote add origin "$url"
+      fi
+      echo "conn: sync remote set to $url"
+      ;;
+    push)
+      git -C "$CONN_HOME" push -u origin HEAD
+      ;;
+    pull)
+      git -C "$CONN_HOME" pull --rebase --autostash
+      ;;
+    ""|status)
+      git -C "$CONN_HOME" add -A
+      git -C "$CONN_HOME" commit -m "conn sync $(date -Iseconds)" >/dev/null || echo "conn: nothing to commit"
+      if git -C "$CONN_HOME" remote get-url origin >/dev/null 2>&1; then
+        git -C "$CONN_HOME" pull --rebase --autostash
+        git -C "$CONN_HOME" push -u origin HEAD
+      else
+        echo "conn: no remote configured; run: conn sync remote <url>"
+      fi
+      ;;
+    *) die "usage: conn sync {init|remote URL|push|pull|status}" ;;
+  esac
+}
+
+# --- doctor ---------------------------------------------------------------
+
+cmd_doctor() {
+  local ok=1
+  check() {
+    if command -v "$1" >/dev/null 2>&1; then
+      printf '  [x] %-24s %s\n' "$1" "found"
+    else
+      printf '  [ ] %-24s %s\n' "$1" "missing${2:+ (pkg install $2)}"
+      [[ "${3:-}" == "required" ]] && ok=0
+    fi
+  }
+  echo "Required:"
+  check bash "" required
+  check fzf fzf required
+  check ssh openssh required
+  check tmux tmux required
+  echo "Optional:"
+  check mosh mosh
+  check age age
+  check sshpass sshpass
+  check git git
+  check termux-clipboard-set termux-api
+  [[ -f "$SSH_CONFIG" ]] && echo "  [x] $SSH_CONFIG exists" || echo "  [ ] $SSH_CONFIG missing (run: conn add)"
+  (( ok )) || die "missing required dependencies"
+  echo "conn: all required dependencies present"
+}
+
+# --- dispatch ---------------------------------------------------------------
+
+main() {
+  ensure_dirs
+  local cmd="${1:-connect}"
+  [[ $# -gt 0 ]] && shift || true
+  case "$cmd" in
+    connect) cmd_connect "$@" ;;
+    add) cmd_add "$@" ;;
+    edit) cmd_edit "$@" ;;
+    keygen) cmd_keygen "$@" ;;
+    snip) cmd_snip "$@" ;;
+    snip-popup) cmd_snip_popup "$@" ;;
+    bind-key) cmd_bind_key "$@" ;;
+    secret) cmd_secret "$@" ;;
+    widgetize) cmd_widgetize "$@" ;;
+    sync) cmd_sync "$@" ;;
+    doctor) cmd_doctor "$@" ;;
+    help|-h|--help) usage ;;
+    -m) cmd_connect -m "$@" ;;
+    *)
+      # allow `conn HOST` as shorthand for `conn connect HOST`
+      if [[ "$cmd" == -* ]]; then
+        die "unknown flag: $cmd (see: conn help)"
+      fi
+      cmd_connect "$cmd" "$@"
+      ;;
+  esac
+}
+
+main "$@"
