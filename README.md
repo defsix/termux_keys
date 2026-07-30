@@ -25,6 +25,23 @@ pkg install fzf openssh tmux mosh age sshpass git termux-api
 
 Run `conn doctor` afterwards to confirm required tools are present.
 
+First-time clone + install, one line:
+
+```
+git clone https://github.com/defsix/termux_keys && cd termux_keys && ./install.sh
+```
+
+### Updating
+
+```
+cd ~/termux_keys && git fetch origin && git reset --hard origin/main && ./install.sh
+```
+
+This force-syncs the repo (overwriting any local edits to `install.sh`/`conn`)
+and re-runs the installer. Your snippets, secrets, age identity, and
+`~/.ssh/config` are untouched either way — they live outside the repo, and
+`install.sh` only creates them if missing, never overwrites.
+
 ## Quick start
 
 ```
