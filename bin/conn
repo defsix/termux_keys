@@ -639,7 +639,9 @@ EOF
         echo "conn: nothing to commit"
       fi
       if git -C "$CONN_HOME" remote get-url origin >/dev/null 2>&1; then
-        git -C "$CONN_HOME" pull --rebase --autostash
+        if git -C "$CONN_HOME" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' >/dev/null 2>&1; then
+          git -C "$CONN_HOME" pull --rebase --autostash
+        fi
         git -C "$CONN_HOME" push -u origin HEAD
       else
         echo "conn: no remote configured; run: conn sync remote <url>"
