@@ -431,7 +431,17 @@ cmd_snip_popup() {
 
   name="${names[$((choice - 1))]}"
   file="$(snip_file "$name")"
+
+  if command -v termux-clipboard-set >/dev/null 2>&1; then
+    termux-clipboard-set < "$file"
+    echo "conn: copied '$name' to clipboard"
+  else
+    echo "conn: termux-clipboard-set not found — install termux-api to enable clipboard copy"
+  fi
+
   inject_snippet "$pane" "$file"
+  echo "conn: typed '$name' into pane $pane"
+  sleep 1
 }
 
 cmd_snip_action() {
