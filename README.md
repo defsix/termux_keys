@@ -49,7 +49,7 @@ conn keygen                 # generate a passphraseless ed25519 key
 conn add                    # add a Host to ~/.ssh/config (prompts for alias/HostName/User/Port)
 conn keygen myserver        # ssh-copy-id the key to that host
 conn connect                # fzf-pick a host and connect (drops you into tmux)
-conn bind-key               # install the prefix+s snippet-popup tmux keybinding
+conn bind-key -n F2         # one-tap snippet keybinding (see below for the Termux button setup)
 ```
 
 Then, inside any session started by `conn`:
@@ -58,8 +58,9 @@ Then, inside any session started by `conn`:
 conn snip add deploy        # write a snippet in $EDITOR
 ```
 
-Press **prefix + s** in tmux → a numbered popup lists your snippets → type
-the number, press enter → it's typed (and run) in the pane you were just in.
+Tap the snippet key → a numbered popup lists your snippets → type the
+number, press enter → it's on your clipboard, ready to paste (and it also
+tries to type it straight into the pane you were just in, as a bonus).
 
 ## Commands
 
@@ -157,31 +158,24 @@ connect command in the current pane.
 
 Snippets are plain shell scripts, one per file, in
 `~/.config/conn/snippets/NAME.sh`. `conn snip add NAME` opens `$EDITOR` on
-that file (creating it with a `# NAME` header if new).
+that file (empty, if it's new — the filename is already the label).
 
-`conn bind-key` (default key `s`) adds this to `~/.tmux.conf`:
+**The workflow that actually matters day to day:** tap the snippet
+keybinding, pick a number, it lands on your **clipboard**, paste it in with
+a long-press. That path is copy/paste — the same mechanism every app on
+your phone already uses — so it's the one to rely on. `conn` also tries to
+type the snippet directly into the pane at the same time, as a bonus; take
+it when it lands, ignore it when it doesn't.
 
-```
-bind-key s display-popup -E -w 80% -h 70% "conn snip-popup '#{pane_id}'"
-```
-
-`#{pane_id}` is expanded against the pane that was focused *when you pressed
-the key* — before tmux switches you into the popup — so the popup script
-knows exactly which live pane to inject into. Reload with
-`tmux source-file ~/.tmux.conf` after installing (or start a new tmux
-session).
-
-The default binding needs the tmux **prefix** (Ctrl-b, then the key) —
-awkward to land reliably on a touchscreen. For a single-tap alternative that
-skips the prefix entirely:
+Set up the keybinding — a single tap, no chord, works reliably on a
+touchscreen:
 
 ```
 conn bind-key -n F2
 ```
 
-That binds `F2` directly — tap it once, no chord. Termux doesn't need a
-physical F-key for this: add a virtual button for it in
-`~/.termux/termux.properties`:
+Termux doesn't need a physical F-key for this: add a virtual button for it
+in `~/.termux/termux.properties`:
 
 ```
 extra-keys = [[ \
@@ -190,18 +184,18 @@ extra-keys = [[ \
 ```
 
 then `termux-reload-settings` and restart Termux — a "Snip" button appears
-in your extra-keys row.
+in your extra-keys row. Tap it any time, from any pane.
 
-The popup itself is a plain numbered menu, not fzf — it lists your snippets
-as `1) name`, `2) name`, ... and you just type the number and press enter.
-On an empty snippet list, or a bad number, it prints a message and waits for
-a keypress instead of closing instantly (`display-popup -E` closes the
-moment its command exits, so silent failures used to just flash and vanish).
+(`conn bind-key` without `-n` instead binds prefix+key, e.g. `Ctrl-b` then
+`s` — the traditional tmux way, but a two-step chord is easy to fumble on a
+touch keyboard, so `-n` is the one worth using here.)
 
-Selecting a snippet runs `tmux send-keys -l` to type its literal contents
-into that pane, followed by `Enter` — so multi-line snippets execute one line
-at a time in the live shell, mirroring JuiceSSH's "pick a snippet, run it"
-behavior. Snippets with side effects should be reviewed before you bind them.
+The popup is a plain numbered menu, not fzf — `1) name`, `2) name`, ... type
+the number, press enter. It shows two confirmation lines before closing —
+`copied '<name>' to clipboard` and `typed '<name>' into pane <id>` — so you
+can see at a glance which one actually happened. On an empty snippet list,
+or a bad number, it prints a message and waits for a keypress instead of
+closing instantly.
 
 From the CLI (outside a popup), `conn snip [NAME]` picks a snippet and offers
 an action menu: **copy** (via `termux-clipboard-set`, if Termux:API is
