@@ -393,10 +393,40 @@ inject_snippet() {
 }
 
 # Invoked from the tmux popup keybinding: conn snip-popup '#{pane_id}'
+# A plain numbered menu rather than fzf: type the number, press enter, done —
+# and on an empty list or bad input it waits for a keypress instead of
+# closing instantly (display-popup -E closes as soon as this exits).
 cmd_snip_popup() {
-  local pane="${1:?internal: missing target pane}" name file
-  name="$(pick_snippet)" || exit 0
-  [[ -n "$name" ]] || exit 0
+  local pane="${1:?internal: missing target pane}"
+  ensure_dirs
+  local -a names=()
+  local f
+  shopt -s nullglob
+  for f in "$SNIP_DIR"/*.sh; do
+    names+=("$(basename "$f" .sh)")
+  done
+  shopt -u nullglob
+
+  if [[ ${#names[@]} -eq 0 ]]; then
+    echo "conn: no snippets yet — run: conn snip add NAME"
+    read -r -p "(press enter to close) " _
+    return
+  fi
+
+  local i
+  for i in "${!names[@]}"; do
+    printf '%2d) %s\n' "$((i + 1))" "${names[$i]}"
+  done
+
+  local choice name file
+  read -r -p "snippet #: " choice
+  if [[ ! "$choice" =~ ^[0-9]+$ ]] || (( choice < 1 || choice > ${#names[@]} )); then
+    echo "conn: invalid selection: $choice"
+    read -r -p "(press enter to close) " _
+    return
+  fi
+
+  name="${names[$((choice - 1))]}"
   file="$(snip_file "$name")"
   inject_snippet "$pane" "$file"
 }

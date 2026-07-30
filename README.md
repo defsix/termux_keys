@@ -58,8 +58,8 @@ Then, inside any session started by `conn`:
 conn snip add deploy        # write a snippet in $EDITOR
 ```
 
-Press **prefix + s** in tmux → fzf popup lists your snippets → pick one → it's
-typed (and run) in the pane you were just in.
+Press **prefix + s** in tmux → a numbered popup lists your snippets → type
+the number, press enter → it's typed (and run) in the pane you were just in.
 
 ## Commands
 
@@ -169,6 +169,12 @@ the key* — before tmux switches you into the popup — so the popup script
 knows exactly which live pane to inject into. Reload with
 `tmux source-file ~/.tmux.conf` after installing (or start a new tmux
 session).
+
+The popup itself is a plain numbered menu, not fzf — it lists your snippets
+as `1) name`, `2) name`, ... and you just type the number and press enter.
+On an empty snippet list, or a bad number, it prints a message and waits for
+a keypress instead of closing instantly (`display-popup -E` closes the
+moment its command exits, so silent failures used to just flash and vanish).
 
 Selecting a snippet runs `tmux send-keys -l` to type its literal contents
 into that pane, followed by `Enter` — so multi-line snippets execute one line
