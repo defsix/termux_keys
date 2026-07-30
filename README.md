@@ -75,7 +75,8 @@ conn snip add NAME             create/edit a snippet
 conn snip ls                   list snippets
 conn snip rm NAME              delete a snippet
 conn snip [NAME]               pick a snippet, then copy / run local / run on host
-conn bind-key [KEY]            install a tmux popup keybinding (default: s)
+conn bind-key [-n] [KEY]        install a tmux popup keybinding (default:
+                                 prefix+s; -n binds KEY directly, no prefix)
 
 conn secret init               create an age identity for password holdouts
 conn secret add HOST           encrypt a host password with age
@@ -169,6 +170,27 @@ the key* — before tmux switches you into the popup — so the popup script
 knows exactly which live pane to inject into. Reload with
 `tmux source-file ~/.tmux.conf` after installing (or start a new tmux
 session).
+
+The default binding needs the tmux **prefix** (Ctrl-b, then the key) —
+awkward to land reliably on a touchscreen. For a single-tap alternative that
+skips the prefix entirely:
+
+```
+conn bind-key -n F2
+```
+
+That binds `F2` directly — tap it once, no chord. Termux doesn't need a
+physical F-key for this: add a virtual button for it in
+`~/.termux/termux.properties`:
+
+```
+extra-keys = [[ \
+  {key: ESC}, {key: CTRL}, {key: ALT}, {key: TAB}, {key: F2, display: 'Snip'} \
+]]
+```
+
+then `termux-reload-settings` and restart Termux — a "Snip" button appears
+in your extra-keys row.
 
 The popup itself is a plain numbered menu, not fzf — it lists your snippets
 as `1) name`, `2) name`, ... and you just type the number and press enter.

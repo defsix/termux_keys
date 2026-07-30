@@ -38,7 +38,8 @@ conn — Termux SSH connection + snippet manager
   conn snip ls                   list snippets
   conn snip rm NAME              delete a snippet
   conn snip [NAME]               pick a snippet, then copy / run local / run on host
-  conn bind-key [KEY]            install a tmux popup keybinding (default: s)
+  conn bind-key [-n] [KEY]        install a tmux popup keybinding (default:
+                                  prefix+s; -n binds KEY directly, no prefix)
 
   conn secret init               create an age identity for password holdouts
   conn secret add HOST           encrypt a host password with age (offers to
@@ -486,18 +487,36 @@ cmd_snip() {
 }
 
 cmd_bind_key() {
-  local key="${1:-s}"
+  local no_prefix=0 key=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -n) no_prefix=1; shift ;;
+      -*) die "unknown flag: $1" ;;
+      *) key="$1"; shift ;;
+    esac
+  done
+  [[ -n "$key" ]] || key="s"
+
   ensure_dirs
   [[ -f "$TMUX_CONF" ]] || : > "$TMUX_CONF"
   if grep -q "conn snip-popup" "$TMUX_CONF" 2>/dev/null; then
     echo "conn: tmux binding already present in $TMUX_CONF (edit it by hand to change the key)"
     return
   fi
+
+  local flag=""
+  (( no_prefix )) && flag="-n "
   {
     printf '\n# conn: snippet picker popup (added by "conn bind-key")\n'
-    printf 'bind-key %s display-popup -E -w 80%% -h 70%% "conn snip-popup '"'"'#{pane_id}'"'"'"\n' "$key"
+    printf 'bind-key %s%s display-popup -E -w 80%% -h 70%% "conn snip-popup '"'"'#{pane_id}'"'"'"\n' "$flag" "$key"
   } >> "$TMUX_CONF"
-  echo "conn: bound prefix+$key to the snippet popup in $TMUX_CONF"
+
+  if (( no_prefix )); then
+    echo "conn: bound '$key' (no prefix needed) to the snippet popup in $TMUX_CONF"
+    echo "conn: on Termux, add a matching button via ~/.termux/termux.properties (extra-keys) if $key isn't on your keyboard"
+  else
+    echo "conn: bound prefix+$key to the snippet popup in $TMUX_CONF"
+  fi
   echo "conn: reload tmux config with: tmux source-file $TMUX_CONF"
 }
 
