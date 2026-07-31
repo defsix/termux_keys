@@ -64,6 +64,11 @@ tries to type it straight into the pane you were just in, as a bonus).
 
 ## Commands
 
+`conn help` prints the full list below. A short version of it — just the
+handful of commands used day to day — also prints automatically once a
+connection ends or a `conn snip` action finishes, as a standing reminder
+without needing to look anything up.
+
 ```
 conn [connect] [-m] [HOST|N]   connect (fzf-pick, or by number, if HOST omitted; -m = mosh)
 conn list                      list hosts, numbered and grouped

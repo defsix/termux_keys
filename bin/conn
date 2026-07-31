@@ -66,6 +66,22 @@ conn — Termux SSH connection + snippet manager
 EOF
 }
 
+# Short reminder shown after a connection ends or a snippet action
+# completes — deliberately just the handful of commands people reach for
+# day to day, not the full list (that's `conn help`).
+quick_help() {
+  cat <<'EOF'
+
+conn quick reference:
+  conn connect [HOST|N]   connect (fzf-pick, or by number, if omitted)
+  conn add / edit / rm    manage ~/.ssh/config
+  conn snip               pick a snippet: copy / run local / run on host / inject
+  conn secret add HOST    store an age-encrypted password for it
+  conn sync               push/pull snippets + secrets
+  conn help               full command list
+EOF
+}
+
 # --- ssh config helpers -----------------------------------------------
 
 # Emits "alias<TAB>group" per non-wildcard Host alias, in config file order.
@@ -216,6 +232,10 @@ cmd_connect() {
     need_cmd ssh openssh
     cmd_str="$(printf 'ssh %q' "$host")"
   fi
+
+  # Shows the quick-reference once the session ends, then waits for a
+  # keypress — otherwise it'd flash and vanish as the pane/window closes.
+  cmd_str="$cmd_str; conn _post_connect_help"
 
   if [[ -n "${TMUX:-}" ]]; then
     exec bash -c "$cmd_str"
@@ -517,6 +537,7 @@ cmd_snip_action() {
       ;;
     *) exit 0 ;;
   esac
+  quick_help
 }
 
 cmd_snip() {
@@ -758,6 +779,7 @@ main() {
     keygen) cmd_keygen "$@" ;;
     snip) cmd_snip "$@" ;;
     snip-popup) cmd_snip_popup "$@" ;;
+    _post_connect_help) quick_help; read -r -p "(press enter to close) " _ ;;
     bind-key) cmd_bind_key "$@" ;;
     secret) cmd_secret "$@" ;;
     widgetize) cmd_widgetize "$@" ;;
