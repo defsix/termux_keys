@@ -608,6 +608,11 @@ cmd_secret_add() {
   [[ -n "$host" ]] || die "usage: conn secret add HOST"
   need_cmd age age
   ensure_dirs
+  if [[ -f "$SECRET_DIR/$host.age" ]]; then
+    local overwrite
+    read -r -p "A password is already stored for '$host' — overwrite it? [y/N]: " overwrite
+    [[ "$overwrite" =~ ^[Yy] ]] || { echo "conn: kept the existing password for '$host'"; return; }
+  fi
   [[ -f "$AGE_RECIPIENT_FILE" ]] || cmd_secret_init
   recipient="$(age_recipient)"
   read -r -s -p "Password for $host: " pw

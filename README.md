@@ -220,6 +220,11 @@ conn secret init          # once per device: creates ~/.config/conn/age/identity
 conn secret add HOST      # prompts for the password, encrypts it to secrets/HOST.age
 ```
 
+`conn secret add HOST` asks for confirmation before replacing an existing
+stored password for that host, rather than silently overwriting it — same
+as `conn keygen` and `conn secret init` refusing to clobber an existing
+key/identity.
+
 `conn connect HOST` automatically detects `secrets/HOST.age` and uses:
 
 ```
