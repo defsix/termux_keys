@@ -13,6 +13,13 @@ Two things matter here:
 
 Everything else in this repo exists to make those two things work.
 
+<p align="center">
+  <img src="docs/screenshots/connect-picker.png" width="420" alt="conn connect showing a numbered, grouped fzf picker with resolved user@host">
+</p>
+
+*(Mockup with placeholder hosts/IPs, not a real device — illustrative only.
+See the relevant sections below for the rest.)*
+
 ## Install
 
 ```
@@ -68,6 +75,10 @@ tries to type it straight into the pane you were just in, as a bonus).
 handful of commands used day to day — also prints automatically once a
 connection ends or a `conn snip` action finishes, as a standing reminder
 without needing to look anything up.
+
+<p align="center">
+  <img src="docs/screenshots/quick-help.png" width="620" alt="the quick-reference cheatsheet shown after a connection ends">
+</p>
 
 ```
 conn [connect] [-m] [HOST|N]   connect (fzf-pick, or by number, if HOST omitted; -m = mosh)
@@ -129,6 +140,10 @@ line):
  4) loose (root@10.0.0.9)
 ```
 
+<p align="center">
+  <img src="docs/screenshots/conn-list.png" width="420" alt="conn list followed by conn connect 3 by number">
+</p>
+
 The same numbers appear in the `conn connect` / `conn rm` fzf picker, and
 `conn connect N` (or the shorthand `conn N`) connects straight to the Nth
 host, skipping fzf entirely — handy for muscle-memory quick launches.
@@ -167,6 +182,10 @@ connect command in the current pane.
 Snippets are plain shell scripts, one per file, in
 `~/.config/conn/snippets/NAME.sh`. `conn snip add NAME` opens `$EDITOR` on
 that file (empty, if it's new — the filename is already the label).
+
+<p align="center">
+  <img src="docs/screenshots/snip-popup.png" width="420" alt="the numbered snippet popup over a live session">
+</p>
 
 **The workflow that actually matters day to day:** tap the snippet
 keybinding, pick a number, it lands on your **clipboard**, paste it in with
