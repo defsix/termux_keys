@@ -110,12 +110,31 @@ conn doctor                    check for required/optional dependencies
 
 ## How each piece works
 
-### Connections live in `~/.ssh/config`
+### Connections live in `~/.ssh/config` — via `~/.config/conn/ssh_config`
 
-Nothing proprietary — `ssh` reads it natively, so `ProxyJump`, per-host keys,
-`Port`, etc. all work for free. `conn add` appends a `Host` block; `conn edit`
-opens the file in `$EDITOR` directly. `conn connect` (no args) fzf-picks from
-the `Host` aliases in the file, skipping any wildcard (`*`/`?`) patterns.
+Nothing proprietary — plain `ssh` config syntax, so `ProxyJump`, per-host
+keys, `Port`, etc. all work for free. `conn add` appends a `Host` block;
+`conn edit` opens it in `$EDITOR` directly. `conn connect` (no args)
+fzf-picks from the `Host` aliases, skipping any wildcard (`*`/`?`) patterns.
+
+The actual `Host` blocks live in `~/.config/conn/ssh_config` — the same
+git-synced repo as your snippets and secrets, so hosts you add on one device
+show up on another after `conn sync`. `~/.ssh/config` itself is kept to a
+single line:
+
+```
+Include ~/.config/conn/ssh_config
+```
+
+so plain `ssh HOST` / `git` / `mosh` outside of `conn` see the exact same
+hosts without knowing anything about `conn`. This is set up automatically —
+the first time `conn` runs, if `~/.ssh/config` already has real content
+that isn't already `Include`d, it's moved into `ssh_config` (merging with
+anything already there from a sync pull, never overwriting it), the
+original is backed up to `~/.ssh/config.bak.<timestamp>`, and `~/.ssh/config`
+is rewritten to just the `Include` line. This only ever happens once per
+device; a message always prints when it does — never a silent structural
+change to a config you already had working.
 
 `conn add` also asks, at the end, whether to store a password for the new
 host — answering yes runs the same `age`-encrypted flow as `conn secret add`
@@ -291,10 +310,11 @@ step JuiceSSH used to provide.
 ### Sync
 
 `conn sync init` turns `~/.config/conn` into a git repo covering
-`snippets/`, `secrets/*.age`, and the age `recipient.txt` (the *public* half
-— safe to sync). Its `.gitignore` excludes `age/identity.txt` and any
-`id_*` private key. `conn sync remote URL` sets the origin; `conn sync` (no
-args) commits, pulls (rebase+autostash), and pushes.
+`snippets/`, `secrets/*.age`, `ssh_config` (your connections — see above),
+and the age `recipient.txt` (the *public* half — safe to sync). Its
+`.gitignore` excludes `age/identity.txt` and any `id_*` private key.
+`conn sync remote URL` sets the origin; `conn sync` (no args) commits, pulls
+(rebase+autostash), and pushes.
 
 **Golden rule of sync: only ciphertext travels.** The age identity (and any
 private SSH key) must never go through the sync repo, GitHub, Drive,

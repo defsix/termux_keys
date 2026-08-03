@@ -12,8 +12,10 @@ chmod +x "$REPO_DIR/bin/conn"
 mkdir -p "$HOME/.config/conn/snippets" "$HOME/.config/conn/secrets" "$HOME/.config/conn/age"
 mkdir -p "$HOME/.ssh"
 chmod 700 "$HOME/.ssh"
-[[ -f "$HOME/.ssh/config" ]] || : > "$HOME/.ssh/config"
-chmod 600 "$HOME/.ssh/config"
+# ~/.ssh/config itself (and its Include line pointing at the synced
+# ~/.config/conn/ssh_config) is set up by conn's own ensure_dirs on first
+# run, which also knows how to safely migrate an existing config's content
+# rather than just blindly creating an empty file here.
 
 echo "conn: installed -> $BIN_DIR/conn"
 case ":$PATH:" in

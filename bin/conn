@@ -8,7 +8,12 @@ SECRET_DIR="$CONN_HOME/secrets"
 AGE_DIR="$CONN_HOME/age"
 AGE_IDENTITY="${CONN_AGE_IDENTITY:-$AGE_DIR/identity.txt}"
 AGE_RECIPIENT_FILE="$AGE_DIR/recipient.txt"
-SSH_CONFIG="${CONN_SSH_CONFIG:-$HOME/.ssh/config}"
+# The canonical, git-synced Host-block file conn itself reads/writes.
+SSH_CONFIG="${CONN_SSH_CONFIG:-$CONN_HOME/ssh_config}"
+# The file ssh/git/mosh actually read by default — kept as just an `Include`
+# pointer at SSH_CONFIG (see ensure_ssh_config_include), so plain `ssh HOST`
+# outside of conn sees the same hosts without needing its own copy of them.
+REAL_SSH_CONFIG="${CONN_REAL_SSH_CONFIG:-$HOME/.ssh/config}"
 TMUX_CONF="${CONN_TMUX_CONF:-$HOME/.tmux.conf}"
 SHORTCUTS_DIR="${CONN_SHORTCUTS_DIR:-$HOME/.shortcuts}"
 
@@ -28,8 +33,59 @@ need_cmd() {
 }
 
 ensure_dirs() {
-  mkdir -p "$SNIP_DIR" "$SECRET_DIR" "$AGE_DIR"
-  [[ -f "$SSH_CONFIG" ]] || { mkdir -p "$(dirname "$SSH_CONFIG")"; : > "$SSH_CONFIG"; chmod 600 "$SSH_CONFIG"; }
+  mkdir -p "$SNIP_DIR" "$SECRET_DIR" "$AGE_DIR" "$(dirname "$SSH_CONFIG")"
+  ensure_ssh_config_include
+}
+
+# Makes sure REAL_SSH_CONFIG (~/.ssh/config, what ssh/git/mosh actually read
+# by default) points at SSH_CONFIG (the canonical, git-synced Host-block
+# file) via a single `Include` line — so hosts added on one device/OS are
+# visible to plain `ssh HOST` on another once conn sync pulls them, without
+# ssh needing to know anything about conn.
+#
+# Idempotent: no-ops once the Include line is already present. On first run
+# with a pre-existing ~/.ssh/config that has real content, migrates that
+# content into SSH_CONFIG (merging rather than clobbering if SSH_CONFIG
+# already has hosts from a sync pull), backs up the original file, and
+# replaces it with just the Include line. Always prints what it did — never
+# a silent structural change to an existing config.
+ensure_ssh_config_include() {
+  [[ -f "$SSH_CONFIG" ]] || { : > "$SSH_CONFIG"; chmod 600 "$SSH_CONFIG"; }
+
+  local include_line="Include $SSH_CONFIG"
+  mkdir -p "$(dirname "$REAL_SSH_CONFIG")"
+  chmod 700 "$(dirname "$REAL_SSH_CONFIG")" 2>/dev/null || true
+
+  if [[ -f "$REAL_SSH_CONFIG" ]] && grep -qF "$include_line" "$REAL_SSH_CONFIG" 2>/dev/null; then
+    return
+  fi
+
+  if [[ ! -f "$REAL_SSH_CONFIG" ]] || [[ ! -s "$REAL_SSH_CONFIG" ]]; then
+    printf '# conn: hosts live in %s, included below\n%s\n' "$SSH_CONFIG" "$include_line" > "$REAL_SSH_CONFIG"
+    chmod 600 "$REAL_SSH_CONFIG"
+    return
+  fi
+
+  # REAL_SSH_CONFIG exists with real content that isn't Include'd yet - migrate it.
+  local backup="$REAL_SSH_CONFIG.bak.$(date +%Y%m%d%H%M%S)"
+  cp "$REAL_SSH_CONFIG" "$backup"
+  chmod 600 "$backup"
+
+  if [[ -s "$SSH_CONFIG" ]]; then
+    {
+      printf '\n# conn: merged in from %s during migration on %s\n' "$REAL_SSH_CONFIG" "$(date -Iseconds)"
+      cat "$REAL_SSH_CONFIG"
+    } >> "$SSH_CONFIG"
+  else
+    cat "$REAL_SSH_CONFIG" > "$SSH_CONFIG"
+  fi
+  chmod 600 "$SSH_CONFIG"
+
+  printf '# conn: hosts live in %s, included below\n%s\n' "$SSH_CONFIG" "$include_line" > "$REAL_SSH_CONFIG"
+  chmod 600 "$REAL_SSH_CONFIG"
+
+  echo "conn: moved your existing hosts from $REAL_SSH_CONFIG into $SSH_CONFIG (now tracked by conn sync)" >&2
+  echo "conn: original backed up to $backup" >&2
 }
 
 usage() {
@@ -697,7 +753,7 @@ id_*
 !id_*.pub
 *.pem
 EOF
-        git -C "$CONN_HOME" add snippets secrets .gitignore 2>/dev/null || true
+        git -C "$CONN_HOME" add snippets secrets ssh_config .gitignore 2>/dev/null || true
         [[ -f "$AGE_RECIPIENT_FILE" ]] && git -C "$CONN_HOME" add "$AGE_RECIPIENT_FILE"
         git -C "$CONN_HOME" commit -m "conn: initial sync repo" || true
         echo "conn: initialized sync repo at $CONN_HOME"
