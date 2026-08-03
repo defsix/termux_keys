@@ -344,6 +344,16 @@ Termux:Widget add-on (home-screen launchers).
 pkg install fzf openssh tmux mosh age sshpass git nano termux-api
 ```
 
+## Windows
+
+[`windows/conn.ps1`](windows/README.md) is a PowerShell companion that
+reads and writes the same git-synced `~/.config/conn` repo — hosts,
+snippets, and encrypted secrets created on your phone are usable there,
+and vice versa, after `conn sync`. It's not a port (no tmux means no
+live-pane snippet injection; clipboard copy is the way snippets get used
+there too), just a way to reach the same connections from a desktop. See
+[`windows/README.md`](windows/README.md) for setup.
+
 ## Non-goals
 
 - No GUI / Android app / embedded terminal emulator — this is a CLI plus
