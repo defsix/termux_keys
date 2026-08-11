@@ -100,9 +100,10 @@ conn — Termux SSH connection + snippet manager
   conn keygen [HOST...]          generate an ed25519 key, ssh-copy-id to HOSTs
 
   conn snip add NAME             create/edit a snippet
-  conn snip ls                   list snippets
-  conn snip rm NAME              delete a snippet
-  conn snip [NAME]               pick a snippet, then copy / run local / run on host
+  conn snip ls                   list snippets, numbered
+  conn snip rm NAME|N            delete a snippet, by name or number
+  conn snip [NAME|N]             pick a snippet (fzf, or by number, if
+                                  omitted), then copy / run local / run on host
   conn bind-key [-n] [KEY]        install a tmux popup keybinding (default:
                                   prefix+s; -n binds KEY directly, no prefix)
 
@@ -131,7 +132,7 @@ quick_help() {
 conn quick reference:
   conn connect [HOST|N]   connect (fzf-pick, or by number, if omitted)
   conn add / edit / rm    manage ~/.ssh/config
-  conn snip               pick a snippet: copy / run local / run on host / inject
+  conn snip [N]            pick a snippet: copy / run local / run on host / inject
   conn secret add HOST    store an age-encrypted password for it
   conn sync               push/pull snippets + secrets
   conn help               full command list
@@ -467,7 +468,7 @@ cmd_snip_add() {
   echo "conn: saved snippet '$name' -> $file"
 }
 
-cmd_snip_ls() {
+list_snip_names() {
   ensure_dirs
   local f
   shopt -s nullglob
@@ -477,9 +478,41 @@ cmd_snip_ls() {
   shopt -u nullglob
 }
 
+# Populates SNIP_NAMES (1-indexed, matching the "N) name" lines cmd_snip_ls
+# prints) from the current snippet directory.
+load_snip_index() {
+  SNIP_NAMES=()
+  local name
+  while IFS= read -r name; do
+    [[ -n "$name" ]] || continue
+    SNIP_NAMES+=("$name")
+  done < <(list_snip_names)
+}
+
+# Resolves a 1-indexed number (as printed by `conn snip ls`) to its name.
+snip_by_number() {
+  local n="$1"
+  load_snip_index
+  (( n >= 1 && n <= ${#SNIP_NAMES[@]} )) || die "no snippet numbered $n (run: conn snip ls)"
+  printf '%s\n' "${SNIP_NAMES[$((n - 1))]}"
+}
+
+cmd_snip_ls() {
+  load_snip_index
+  if [[ ${#SNIP_NAMES[@]} -eq 0 ]]; then
+    echo "conn: no snippets yet — run: conn snip add NAME"
+    return
+  fi
+  local i
+  for i in "${!SNIP_NAMES[@]}"; do
+    printf '%2d) %s\n' "$((i + 1))" "${SNIP_NAMES[$i]}"
+  done
+}
+
 cmd_snip_rm() {
   local name="$1" file
-  [[ -n "$name" ]] || die "usage: conn snip rm NAME"
+  [[ -n "$name" ]] || die "usage: conn snip rm NAME|N"
+  [[ "$name" =~ ^[0-9]+$ ]] && name="$(snip_by_number "$name")"
   file="$(snip_file "$name")"
   [[ -f "$file" ]] || die "no such snippet: $name"
   rm -f "$file"
@@ -489,7 +522,7 @@ cmd_snip_rm() {
 pick_snippet() {
   need_cmd fzf fzf
   local names
-  names="$(cmd_snip_ls)"
+  names="$(list_snip_names)"
   [[ -n "$names" ]] || die "no snippets yet — run: conn snip add NAME"
   printf '%s\n' "$names" | fzf --prompt='snippet> ' --height='~40%' --reverse \
     --preview="cat '$SNIP_DIR/{}.sh'" --preview-window=down:60%:wrap
@@ -603,7 +636,10 @@ cmd_snip() {
     ls) cmd_snip_ls ;;
     rm) cmd_snip_rm "${2:-}" ;;
     "") cmd_snip_action ;;
-    *) cmd_snip_action "$sub" ;;
+    *)
+      [[ "$sub" =~ ^[0-9]+$ ]] && sub="$(snip_by_number "$sub")"
+      cmd_snip_action "$sub"
+      ;;
   esac
 }
 

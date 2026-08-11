@@ -90,9 +90,10 @@ conn edit                   open ssh_config in $env:EDITOR (default notepad)
 conn keygen [HOST]          generate an ed25519 key, ssh-copy-id to HOST
 
 conn snip add NAME          create/edit a snippet
-conn snip ls                list snippets
-conn snip rm NAME           delete a snippet
-conn snip [NAME]            pick a snippet: copy to clipboard / run local / run on host
+conn snip ls                list snippets, numbered
+conn snip rm NAME|N         delete a snippet, by name or number
+conn snip [NAME|N]          pick a snippet (fzf, or by number, if
+                            omitted): copy to clipboard / run local / run on host
 
 conn secret init             create an age identity for password holdouts
 conn secret add HOST         encrypt a host password with age (offers to

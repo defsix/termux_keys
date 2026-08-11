@@ -202,7 +202,7 @@ function Show-ConnQuickHelp {
     Write-Host 'conn quick reference:' -ForegroundColor Cyan
     Write-Host '  conn connect [HOST|N]   connect (fzf-pick, or by number, if omitted)'
     Write-Host '  conn add / edit / rm    manage the shared ssh_config'
-    Write-Host '  conn snip               pick a snippet and copy it to the clipboard'
+    Write-Host '  conn snip [N]           pick a snippet and copy it to the clipboard'
     Write-Host '  conn secret add HOST    store an age-encrypted password for it'
     Write-Host '  conn sync               push/pull hosts + snippets + secrets'
     Write-Host '  conn help               full command list'
@@ -452,14 +452,44 @@ function Invoke-ConnSnipAdd {
     Write-Host "conn: saved snippet '$Name' -> $file"
 }
 
-function Invoke-ConnSnipLs {
+function Get-ConnSnipNames {
     Initialize-ConnDirs
     Get-ChildItem -Path $SnipDir -Filter '*.sh' -ErrorAction SilentlyContinue | ForEach-Object { $_.BaseName }
 }
 
+# Mirrors Get-ConnHostIndex: numbered "N) name" lines matching what
+# Invoke-ConnSnipLs prints, so `conn snip N` can resolve by that number.
+function Get-ConnSnipIndex {
+    $names = @(Get-ConnSnipNames)
+    $lines = @()
+    for ($i = 0; $i -lt $names.Count; $i++) {
+        $lines += ('{0,2}) {1}' -f ($i + 1), $names[$i])
+    }
+    return [PSCustomObject]@{ Names = $names; Lines = $lines }
+}
+
+function Resolve-ConnSnipByNumber {
+    param([int]$Number)
+    $idx = Get-ConnSnipIndex
+    if ($Number -lt 1 -or $Number -gt $idx.Names.Count) {
+        Write-ConnDie "no snippet numbered $Number (run: conn snip ls)"
+    }
+    return $idx.Names[$Number - 1]
+}
+
+function Invoke-ConnSnipLs {
+    $idx = Get-ConnSnipIndex
+    if ($idx.Names.Count -eq 0) {
+        Write-Host 'conn: no snippets yet - run: conn snip add NAME'
+        return
+    }
+    $idx.Lines
+}
+
 function Invoke-ConnSnipRm {
     param([string]$Name)
-    if (-not $Name) { Write-ConnDie 'usage: conn snip rm NAME' }
+    if (-not $Name) { Write-ConnDie 'usage: conn snip rm NAME|N' }
+    if ($Name -match '^\d+$') { $Name = Resolve-ConnSnipByNumber -Number ([int]$Name) }
     $file = Get-ConnSnipFile -Name $Name
     if (-not (Test-Path $file)) { Write-ConnDie "no such snippet: $Name" }
     Remove-Item $file
@@ -468,7 +498,7 @@ function Invoke-ConnSnipRm {
 
 function Select-ConnSnippet {
     Test-ConnCommand fzf 'winget install fzf'
-    $names = @(Invoke-ConnSnipLs)
+    $names = @(Get-ConnSnipNames)
     if ($names.Count -eq 0) { Write-ConnDie 'no snippets yet - run: conn snip add NAME' }
     return $names | & fzf --prompt='snippet> ' --height='~40%' --reverse
 }
@@ -516,7 +546,11 @@ function Invoke-ConnSnip {
         'add' { Invoke-ConnSnipAdd -Name $Rest[1] }
         'ls' { Invoke-ConnSnipLs }
         'rm' { Invoke-ConnSnipRm -Name $Rest[1] }
-        default { Invoke-ConnSnipAction -Name $Rest[0] }
+        default {
+            $name = $Rest[0]
+            if ($name -match '^\d+$') { $name = Resolve-ConnSnipByNumber -Number ([int]$name) }
+            Invoke-ConnSnipAction -Name $name
+        }
     }
 }
 
@@ -698,9 +732,10 @@ Shares the same git-synced ~/.config/conn (ssh_config, snippets, secrets).
   conn keygen [HOST]          generate an ed25519 key, ssh-copy-id to HOST
 
   conn snip add NAME          create/edit a snippet
-  conn snip ls                list snippets
-  conn snip rm NAME           delete a snippet
-  conn snip [NAME]            pick a snippet: copy to clipboard / run local / run on host
+  conn snip ls                list snippets, numbered
+  conn snip rm NAME|N         delete a snippet, by name or number
+  conn snip [NAME|N]          pick a snippet (fzf, or by number, if
+                              omitted): copy to clipboard / run local / run on host
 
   conn secret init            create an age identity for password holdouts
   conn secret add HOST        encrypt a host password with age (offers to

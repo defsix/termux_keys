@@ -89,9 +89,10 @@ conn edit                      open ~/.ssh/config in $EDITOR
 conn keygen [HOST...]          generate an ed25519 key, ssh-copy-id to HOSTs
 
 conn snip add NAME             create/edit a snippet
-conn snip ls                   list snippets
-conn snip rm NAME              delete a snippet
-conn snip [NAME]               pick a snippet, then copy / run local / run on host
+conn snip ls                   list snippets, numbered
+conn snip rm NAME|N            delete a snippet, by name or number
+conn snip [NAME|N]             pick a snippet (fzf, or by number, if
+                               omitted), then copy / run local / run on host
 conn bind-key [-n] [KEY]        install a tmux popup keybinding (default:
                                  prefix+s; -n binds KEY directly, no prefix)
 
@@ -243,8 +244,9 @@ can see at a glance which one actually happened. On an empty snippet list,
 or a bad number, it prints a message and waits for a keypress instead of
 closing instantly.
 
-From the CLI (outside a popup), `conn snip [NAME]` picks a snippet and offers
-an action menu: **copy** (via `termux-clipboard-set`, if Termux:API is
+From the CLI (outside a popup), `conn snip [NAME|N]` picks a snippet — via
+fzf, by name, or by the number `conn snip ls` prints — and offers an action
+menu: **copy** (via `termux-clipboard-set`, if Termux:API is
 installed), **run local** (`bash` the snippet on the phone), **run on host**
 (`ssh HOST "$body"`, fzf-picking the host), and — if you're inside tmux —
 **inject into pane** (send it to your current pane).
