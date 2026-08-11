@@ -498,9 +498,15 @@ function Invoke-ConnSnipRm {
 
 function Select-ConnSnippet {
     Test-ConnCommand fzf 'winget install fzf'
-    $names = @(Get-ConnSnipNames)
-    if ($names.Count -eq 0) { Write-ConnDie 'no snippets yet - run: conn snip add NAME' }
-    return $names | & fzf --prompt='snippet> ' --height='~40%' --reverse
+    $idx = Get-ConnSnipIndex
+    if ($idx.Names.Count -eq 0) { Write-ConnDie 'no snippets yet - run: conn snip add NAME' }
+    $selection = $idx.Lines | & fzf --prompt='snippet> ' --height='~40%' --reverse
+    if (-not $selection) { return $null }
+    if ($selection -match '^\s*(\d+)\)') {
+        $n = [int]$matches[1]
+        return $idx.Names[$n - 1]
+    }
+    return $null
 }
 
 function Invoke-ConnSnipAction {

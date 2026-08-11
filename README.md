@@ -245,7 +245,8 @@ or a bad number, it prints a message and waits for a keypress instead of
 closing instantly.
 
 From the CLI (outside a popup), `conn snip [NAME|N]` picks a snippet — via
-fzf, by name, or by the number `conn snip ls` prints — and offers an action
+fzf (which shows the same numbers as `conn snip ls`, with a preview pane), by
+name, or straight to the action menu by number — and offers an action
 menu: **copy** (via `termux-clipboard-set`, if Termux:API is
 installed), **run local** (`bash` the snippet on the phone), **run on host**
 (`ssh HOST "$body"`, fzf-picking the host), and — if you're inside tmux —

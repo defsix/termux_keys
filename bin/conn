@@ -132,7 +132,7 @@ quick_help() {
 conn quick reference:
   conn connect [HOST|N]   connect (fzf-pick, or by number, if omitted)
   conn add / edit / rm    manage ~/.ssh/config
-  conn snip [N]            pick a snippet: copy / run local / run on host / inject
+  conn snip [N]           pick a snippet: copy / run local / run on host / inject
   conn secret add HOST    store an age-encrypted password for it
   conn sync               push/pull snippets + secrets
   conn help               full command list
@@ -478,14 +478,17 @@ list_snip_names() {
   shopt -u nullglob
 }
 
-# Populates SNIP_NAMES (1-indexed, matching the "N) name" lines cmd_snip_ls
-# prints) from the current snippet directory.
+# Populates SNIP_NAMES / SNIP_LINES (1-indexed "N) name" display strings,
+# same convention as load_host_index) from the current snippet directory.
 load_snip_index() {
   SNIP_NAMES=()
-  local name
+  SNIP_LINES=()
+  local name n=0
   while IFS= read -r name; do
     [[ -n "$name" ]] || continue
+    n=$((n + 1))
     SNIP_NAMES+=("$name")
+    SNIP_LINES+=("$(printf '%2d) %s' "$n" "$name")")
   done < <(list_snip_names)
 }
 
@@ -503,10 +506,7 @@ cmd_snip_ls() {
     echo "conn: no snippets yet — run: conn snip add NAME"
     return
   fi
-  local i
-  for i in "${!SNIP_NAMES[@]}"; do
-    printf '%2d) %s\n' "$((i + 1))" "${SNIP_NAMES[$i]}"
-  done
+  printf '%s\n' "${SNIP_LINES[@]}"
 }
 
 cmd_snip_rm() {
@@ -519,13 +519,27 @@ cmd_snip_rm() {
   echo "conn: removed snippet '$name'"
 }
 
+# Invoked as `conn _snip_preview 'N) name'` from inside pick_snippet's fzf
+# --preview — a real subcommand rather than embedded shell text, since the
+# preview runs in its own subshell that only gets the raw highlighted line.
+cmd_snip_preview() {
+  local line="$1" name
+  name="${line#*) }"
+  cat "$(snip_file "$name")" 2>/dev/null
+}
+
 pick_snippet() {
   need_cmd fzf fzf
-  local names
-  names="$(list_snip_names)"
-  [[ -n "$names" ]] || die "no snippets yet — run: conn snip add NAME"
-  printf '%s\n' "$names" | fzf --prompt='snippet> ' --height='~40%' --reverse \
-    --preview="cat '$SNIP_DIR/{}.sh'" --preview-window=down:60%:wrap
+  load_snip_index
+  [[ ${#SNIP_NAMES[@]} -gt 0 ]] || die "no snippets yet — run: conn snip add NAME"
+  local sel idx
+  sel="$(printf '%s\n' "${SNIP_LINES[@]}" | fzf --prompt='snippet> ' --height='~40%' --reverse \
+    --preview="conn _snip_preview {}" --preview-window=down:60%:wrap)"
+  [[ -n "$sel" ]] || return 1
+  idx="${sel%%)*}"
+  idx="${idx//[[:space:]]/}"
+  [[ "$idx" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "${SNIP_NAMES[$((idx - 1))]}"
 }
 
 # Types a snippet's body into a live tmux pane without submitting it — the
@@ -877,6 +891,7 @@ main() {
     snip) cmd_snip "$@" ;;
     snip-popup) cmd_snip_popup "$@" ;;
     _post_connect_help) quick_help; read -r -p "(press enter to close) " _ ;;
+    _snip_preview) cmd_snip_preview "$1" ;;
     bind-key) cmd_bind_key "$@" ;;
     secret) cmd_secret "$@" ;;
     widgetize) cmd_widgetize "$@" ;;
