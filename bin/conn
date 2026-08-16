@@ -835,7 +835,8 @@ EOF
       fi
       if git -C "$CONN_HOME" remote get-url origin >/dev/null 2>&1; then
         if git -C "$CONN_HOME" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' >/dev/null 2>&1; then
-          git -C "$CONN_HOME" pull --rebase --autostash
+          git -C "$CONN_HOME" pull --rebase --autostash || \
+            die "pull failed (see the git error above — if it's a merge conflict, resolve it and run: git -C $CONN_HOME rebase --continue, then conn sync again)"
         fi
         git -C "$CONN_HOME" push -u origin HEAD
       else

@@ -220,7 +220,12 @@ function Invoke-ConnAdd {
     if (-not $User) { $User = $env:USERNAME }
     $Port = Read-Host 'Port [22]'
     if (-not $Port) { $Port = 22 }
-    $DefaultIdentity = Join-Path $HOME '.ssh/id_ed25519'
+    # Portable literal, not a resolved Windows path (Join-Path $HOME ...) --
+    # this string goes into the shared ssh_config, which every other device
+    # (Linux/Termux, where '~' means something completely different) reads
+    # too. OpenSSH expands '~' the same way on Windows as everywhere else,
+    # so there's no reason to pre-resolve it here and every reason not to.
+    $DefaultIdentity = '~/.ssh/id_ed25519'
     $Identity = Read-Host "IdentityFile [$DefaultIdentity]"
     if (-not $Identity) { $Identity = $DefaultIdentity }
     $Group = Read-Host 'Group (optional, e.g. work)'
@@ -705,6 +710,9 @@ function Invoke-ConnSyncDefault {
         & git -C $ConnHome rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>$null | Out-Null
         if ($LASTEXITCODE -eq 0) {
             & git -C $ConnHome pull --rebase --autostash
+            if ($LASTEXITCODE -ne 0) {
+                Write-ConnDie "pull failed (see the git error above - if it's a merge conflict, resolve it and run: git -C $ConnHome rebase --continue, then conn sync again)"
+            }
         }
         & git -C $ConnHome push -u origin HEAD
     } else {
