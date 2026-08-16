@@ -50,6 +50,24 @@ function Initialize-ConnDirs {
     Initialize-SshConfigInclude
 }
 
+# Non-blocking heads-up before add/snip-add/secret-add: if another device
+# has already pushed changes this one hasn't pulled, creating something new
+# right now is exactly how the ssh_config conflicts happen. Silent no-op if
+# there's no sync repo, no remote, or no network (never blocks on this).
+function Test-ConnBehindRemote {
+    if (-not (Test-Path (Join-Path $ConnHome '.git'))) { return }
+    & git -C $ConnHome remote get-url origin 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { return }
+    & git -C $ConnHome fetch --quiet origin 2>$null
+    if ($LASTEXITCODE -ne 0) { return }
+    & git -C $ConnHome rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) { return }
+    $behind = & git -C $ConnHome rev-list --count 'HEAD..@{upstream}' 2>$null
+    if ($behind -and [int]$behind -gt 0) {
+        Write-Host "conn: heads up - $ConnHome is $behind commit(s) behind its remote; run 'conn sync' first to avoid a conflict" -ForegroundColor Yellow
+    }
+}
+
 function Initialize-SshConfigInclude {
     if (-not (Test-Path $SshConfig)) {
         New-Item -ItemType File -Path $SshConfig -Force | Out-Null
@@ -212,6 +230,7 @@ function Show-ConnQuickHelp {
 
 function Invoke-ConnAdd {
     Initialize-ConnDirs
+    Test-ConnBehindRemote
     $Alias = Read-Host 'Alias (Host name, e.g. myserver)'
     if (-not $Alias) { Write-ConnDie 'alias is required' }
     $HostName = Read-Host 'HostName (IP or DNS name)'
@@ -450,6 +469,7 @@ function Invoke-ConnSnipAdd {
     param([string]$Name)
     if (-not $Name) { Write-ConnDie 'usage: conn snip add NAME' }
     Initialize-ConnDirs
+    Test-ConnBehindRemote
     $file = Get-ConnSnipFile -Name $Name
     if (-not (Test-Path $file)) { New-Item -ItemType File -Path $file -Force | Out-Null }
     $Editor = if ($env:EDITOR) { $env:EDITOR } else { 'notepad' }
@@ -612,6 +632,7 @@ function Invoke-ConnSecretAdd {
     if (-not $HostAlias) { Write-ConnDie 'usage: conn secret add HOST' }
     Test-ConnCommand age 'winget install FiloSottile.age'
     Initialize-ConnDirs
+    Test-ConnBehindRemote
 
     $secretFile = Join-Path $SecretDir "$HostAlias.age"
     if (Test-Path $secretFile) {

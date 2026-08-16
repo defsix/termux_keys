@@ -37,6 +37,22 @@ ensure_dirs() {
   ensure_ssh_config_include
 }
 
+# Non-blocking heads-up before add/snip-add/secret-add: if another device
+# has already pushed changes this one hasn't pulled, creating something new
+# right now is exactly how the ssh_config conflicts happen. Silent no-op if
+# there's no sync repo, no remote, or no network (never blocks on this).
+warn_if_behind() {
+  [[ -d "$CONN_HOME/.git" ]] || return 0
+  git -C "$CONN_HOME" remote get-url origin >/dev/null 2>&1 || return 0
+  git -C "$CONN_HOME" fetch --quiet origin 2>/dev/null || return 0
+  git -C "$CONN_HOME" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' >/dev/null 2>&1 || return 0
+  local behind
+  behind="$(git -C "$CONN_HOME" rev-list --count 'HEAD..@{upstream}' 2>/dev/null)"
+  if [[ -n "$behind" && "$behind" -gt 0 ]]; then
+    echo "conn: heads up — $CONN_HOME is $behind commit(s) behind its remote; run 'conn sync' first to avoid a conflict" >&2
+  fi
+}
+
 # Makes sure REAL_SSH_CONFIG (~/.ssh/config, what ssh/git/mosh actually read
 # by default) points at SSH_CONFIG (the canonical, git-synced Host-block
 # file) via a single `Include` line — so hosts added on one device/OS are
@@ -307,6 +323,7 @@ cmd_connect() {
 
 cmd_add() {
   ensure_dirs
+  warn_if_behind
   local alias hostname user port identity group
   read -r -p "Alias (Host name, e.g. myserver): " alias
   [[ -n "$alias" ]] || die "alias is required"
@@ -462,6 +479,7 @@ cmd_snip_add() {
   local name="$1" file
   [[ -n "$name" ]] || die "usage: conn snip add NAME"
   ensure_dirs
+  warn_if_behind
   file="$(snip_file "$name")"
   [[ -f "$file" ]] || : > "$file"
   "${EDITOR:-nano}" "$file"
@@ -714,6 +732,7 @@ cmd_secret_add() {
   [[ -n "$host" ]] || die "usage: conn secret add HOST"
   need_cmd age age
   ensure_dirs
+  warn_if_behind
   if [[ -f "$SECRET_DIR/$host.age" ]]; then
     local overwrite
     read -r -p "A password is already stored for '$host' — overwrite it? [y/N]: " overwrite

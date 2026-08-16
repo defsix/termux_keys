@@ -370,11 +370,14 @@ twice, in which case keep the copy with a portable `~/.ssh/...`
 `conn add` suggests the portable form by default now, but a manually typed
 absolute path can still end up in there).
 
-**To avoid hitting this in the first place:** run `conn sync` right before
-*and* right after adding or editing anything (`conn add`, `conn snip add`,
-`conn secret add`), not just occasionally. These conflicts only happen when
-two devices both change the shared config in the gap between syncs — the
-shorter that gap, the less likely (and smaller) any conflict is.
+**To avoid hitting this in the first place:** `conn add`, `conn snip add`,
+and `conn secret add` now do a quiet `git fetch` first and print a one-line
+warning if your local copy is behind the remote — a nudge to `conn sync`
+before creating something that's likely to diverge, not a blocker (it never
+fails or stops you, and silently does nothing if there's no sync repo, no
+remote, or no network). Still worth making a habit of running `conn sync`
+right after too — the warning only catches the "already behind" case, not
+the reverse.
 
 ## Security rules
 
