@@ -357,6 +357,109 @@ live-pane snippet injection; clipboard copy is the way snippets get used
 there too), just a way to reach the same connections from a desktop. See
 [`windows/README.md`](windows/README.md) for setup.
 
+## Other Linux devices (Raspberry Pi, servers, etc.)
+
+`bin/conn` is plain bash plus standard Unix tools — nothing Termux-specific
+except two small integrations that gracefully do nothing when absent:
+clipboard copy (`termux-clipboard-set`, so snippet "copy" just prints the
+body instead) and `conn widgetize` (Termux:Widget is Android-only). Every
+other command — connect, add, snip, secret, sync, doctor — runs unmodified
+on any Linux box: Raspberry Pi OS, Debian, Ubuntu, whatever.
+
+### Install
+
+```
+sudo apt update
+sudo apt install -y git fzf age openssh-client sshpass tmux
+git clone https://github.com/defsix/termux_keys && cd termux_keys && ./install.sh
+```
+
+`age` needs Debian 12 "bookworm" (or newer) / a recent Ubuntu — older
+releases don't carry it in apt. If `apt install age` can't find it, grab a
+prebuilt binary for your architecture from the
+[age releases page](https://github.com/FiloSottile/age/releases) instead.
+
+Confirm `~/.local/bin` is on `PATH` (`install.sh` says so if it isn't), then
+`conn doctor` to check the rest.
+
+### Pulling down your existing config
+
+```
+git clone <your-sync-repo-url> ~/.config/conn
+conn doctor
+conn list
+```
+
+If that fails with `Permission denied (publickey)` and your sync remote is
+SSH-based (`git@host:...` rather than `https://...`), this device needs its
+**own key registered with that git host** — separate from any
+host-connection keys and from the `age` identity. That's the same
+"new device" problem the two never-synced files below solve for your
+actual connections; the git remote itself needs the same one-time manual
+treatment, and it has a chicken-and-egg wrinkle: the fix normally lives in
+`~/.config/conn/ssh_config`, which is exactly what you're trying to clone.
+
+1. Generate (or reuse) a key for this purpose:
+   `ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_<gitprovider>`.
+2. Add its `.pub` to your git host's account (GitHub: Settings → SSH and
+   GPG keys).
+3. Test it directly, bypassing config:
+   `ssh -T git@<host> -i ~/.ssh/id_ed25519_<gitprovider> -o IdentitiesOnly=yes`.
+4. Once that works, clone using it explicitly, sidestepping the
+   chicken-and-egg problem:
+   `GIT_SSH_COMMAND="ssh -i ~/.ssh/id_ed25519_<gitprovider> -o IdentitiesOnly=yes" git clone <url> ~/.config/conn`.
+5. Afterwards, add a permanent `Host <host>` block (with that
+   `IdentityFile`) to `~/.config/conn/ssh_config` via `conn edit`, so
+   future plain `git`/`ssh` calls to that host — including `conn sync` —
+   pick the right key automatically without the env var.
+
+First `conn sync` from a brand-new device may also fail with `Author
+identity unknown` — git needs a name/email for commits in this repo
+specifically (not necessarily your global git identity):
+
+```
+git -C ~/.config/conn config user.email "you@example.com"
+git -C ~/.config/conn config user.name "Your Name"
+```
+
+### Backup & restore
+
+Two files never travel through `conn sync`, on purpose (see "Golden rule of
+sync" above) — they're the only things a new device needs copied by hand:
+
+- `~/.config/conn/age/identity.txt`
+- whatever private key(s) your hosts' `IdentityFile` lines point to
+  (typically `~/.ssh/id_ed25519`)
+
+To back both up somewhere durable, encrypt them first — never write private
+keys in plaintext to shared storage, cloud drives, or anywhere off-device:
+
+```
+TS=$(date +%Y%m%d-%H%M%S)
+FILES="$HOME/.config/conn/age/identity.txt"
+while read -r f; do
+  f="${f/#\~/$HOME}"
+  [[ -f "$f" ]]     && FILES="$FILES $f"
+  [[ -f "$f.pub" ]] && FILES="$FILES $f.pub"
+done < <(awk '$1=="IdentityFile"{print $2}' ~/.config/conn/ssh_config | sort -u)
+
+tar -C "$HOME" -czf - $(for f in $FILES; do echo "${f#$HOME/}"; done) \
+  | age -p > "$HOME/conn-keys-$TS.age"
+```
+
+`age -p` asks you to set a passphrase (twice, to confirm) — that passphrase
+is the only thing protecting the backup afterward, so remember it; it isn't
+stored anywhere. Move the resulting `.age` file off the device (a USB
+drive, another machine, a password manager attachment) rather than leaving
+it sitting in `$HOME`.
+
+To restore onto a new device, once `bin/conn` is installed there and
+`~/.config/conn` exists (from the clone step above):
+
+```
+age -d conn-keys-TIMESTAMP.age | tar -C "$HOME" -xzf -
+```
+
 ## Non-goals
 
 - No GUI / Android app / embedded terminal emulator — this is a CLI plus
