@@ -673,7 +673,13 @@ function Invoke-ConnSyncInit {
     & git -C $ConnHome init | Out-Null
     $gitignore = "# never sync the decryption key`nage/identity.txt`n# never sync private keys, only public halves`nid_*`n!id_*.pub`n*.pem`n"
     Set-Content -Path (Join-Path $ConnHome '.gitignore') -Value $gitignore -NoNewline
-    & git -C $ConnHome add snippets secrets ssh_config .gitignore 2>$null
+    # Secrets are binary ciphertext (or empty marker files) -- without this,
+    # core.autocrlf on this very platform will try to convert line endings
+    # in them on checkout, corrupting the bytes and making them show as
+    # perpetually modified.
+    $gitattributes = "*.age -text`n*.autokey -text`n*.keyed -text`n"
+    Set-Content -Path (Join-Path $ConnHome '.gitattributes') -Value $gitattributes -NoNewline
+    & git -C $ConnHome add snippets secrets ssh_config .gitignore .gitattributes 2>$null
     if (Test-Path $AgeRecipientFile) { & git -C $ConnHome add $AgeRecipientFile }
     & git -C $ConnHome commit -m 'conn: initial sync repo' 2>$null | Out-Null
     Write-Host "conn: initialized sync repo at $ConnHome"

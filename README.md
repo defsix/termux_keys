@@ -315,15 +315,66 @@ step JuiceSSH used to provide.
 `conn sync init` turns `~/.config/conn` into a git repo covering
 `snippets/`, `secrets/*.age`, `ssh_config` (your connections — see above),
 and the age `recipient.txt` (the *public* half — safe to sync). Its
-`.gitignore` excludes `age/identity.txt` and any `id_*` private key.
-`conn sync remote URL` sets the origin; `conn sync` (no args) commits, pulls
-(rebase+autostash), and pushes.
+`.gitignore` excludes `age/identity.txt` and any `id_*` private key; its
+`.gitattributes` marks `*.age`/`*.autokey`/`*.keyed` as binary, so a
+Windows client's `core.autocrlf` doesn't try to convert line endings inside
+them and corrupt the ciphertext (see "Resolving sync conflicts" below for
+what that looks like if it happens anyway on a repo initialized before this
+existed). `conn sync remote URL` sets the origin; `conn sync` (no args)
+commits, pulls (rebase+autostash), and pushes.
 
 **Golden rule of sync: only ciphertext travels.** The age identity (and any
 private SSH key) must never go through the sync repo, GitHub, Drive,
 Syncthing — wherever you point it. Move the identity file to a new device
 by hand, once, over a channel you trust (e.g. `scp` between your own
 devices, or physically).
+
+### Resolving sync conflicts
+
+`~/.config/conn` is an ordinary git repo, so editing hosts/snippets/secrets
+on two devices without syncing in between produces an ordinary git conflict
+— almost always in `ssh_config`, since that's the file every device touches
+most. `conn sync` can surface this as either of two shapes, resolved
+differently:
+
+**Rebase conflict** — a local commit couldn't cleanly replay on top of what
+was just pulled. `git status` shows `interactive rebase in progress`.
+Resolve the `<<<<<<<`/`=======`/`>>>>>>>` markers in the file, then:
+```
+git -C ~/.config/conn add ssh_config
+git -C ~/.config/conn rebase --continue
+```
+If it then says "you are currently editing a commit," run
+`rebase --continue` again — some git versions need one extra call to
+actually conclude a single-commit rebase, even once it reports "no commands
+remaining."
+
+**Stash conflict** — the pull/rebase itself was clean, but your own
+uncommitted local changes couldn't reapply afterward. `git status` shows
+`Unmerged paths` with no rebase in progress. Resolve the markers, then:
+```
+git -C ~/.config/conn add ssh_config
+git -C ~/.config/conn stash drop
+```
+
+In both cases, run `conn sync` again afterward to push the resolution —
+and note it failing partway through a conflict is expected and safe:
+`conn sync` refuses to push until the pull/rebase actually succeeds,
+rather than pushing a detached, half-merged `HEAD`.
+
+Conflicts in `ssh_config` are almost always additive and harmless — two
+different `Host` blocks added around the same time, not an actual
+overlapping edit. Keep both sides unless it's genuinely the same host added
+twice, in which case keep the copy with a portable `~/.ssh/...`
+`IdentityFile`, not a platform-specific absolute path (`windows/conn.ps1`'s
+`conn add` suggests the portable form by default now, but a manually typed
+absolute path can still end up in there).
+
+**To avoid hitting this in the first place:** run `conn sync` right before
+*and* right after adding or editing anything (`conn add`, `conn snip add`,
+`conn secret add`), not just occasionally. These conflicts only happen when
+two devices both change the shared config in the gap between syncs — the
+shorter that gap, the less likely (and smaller) any conflict is.
 
 ## Security rules
 

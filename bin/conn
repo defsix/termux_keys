@@ -803,7 +803,16 @@ id_*
 !id_*.pub
 *.pem
 EOF
-        git -C "$CONN_HOME" add snippets secrets ssh_config .gitignore 2>/dev/null || true
+        # Secrets are binary ciphertext (or empty marker files) — without
+        # this, a Windows client with core.autocrlf on will try to convert
+        # line endings in them on checkout, corrupting the bytes and making
+        # them show as perpetually modified.
+        cat > "$CONN_HOME/.gitattributes" <<'EOF'
+*.age -text
+*.autokey -text
+*.keyed -text
+EOF
+        git -C "$CONN_HOME" add snippets secrets ssh_config .gitignore .gitattributes 2>/dev/null || true
         [[ -f "$AGE_RECIPIENT_FILE" ]] && git -C "$CONN_HOME" add "$AGE_RECIPIENT_FILE"
         git -C "$CONN_HOME" commit -m "conn: initial sync repo" || true
         echo "conn: initialized sync repo at $CONN_HOME"
