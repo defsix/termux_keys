@@ -308,7 +308,10 @@ cmd_connect() {
 
   # Shows the quick-reference once the session ends, then waits for a
   # keypress — otherwise it'd flash and vanish as the pane/window closes.
-  cmd_str="$cmd_str; conn _post_connect_help"
+  # A non-zero exit also triggers a re-probe for a stale host key, since
+  # that's the single most common reason a previously-working host stops
+  # connecting (the box got reimaged/reinstalled).
+  cmd_str="$(printf '%s; rc=$?; (( rc == 0 )) || conn _diagnose_conn_failure %q; conn _post_connect_help' "$cmd_str" "$host")"
 
   if [[ -n "${TMUX:-}" ]]; then
     exec bash -c "$cmd_str"
@@ -317,6 +320,27 @@ cmd_connect() {
   need_cmd tmux tmux
   local session="conn-${host//[.:]/-}"
   exec tmux new-session -A -s "$session" "$cmd_str"
+}
+
+# Runs after a failed connect. The live session's own ssh already printed
+# its warning straight to the TTY (mixed in with any interactive output),
+# so this re-probes the host in batch mode to get that same diagnostic text
+# cleanly, and — if it's a stale host-key mismatch — hands back the exact
+# `ssh-keygen -R` command to clear it instead of making you go dig for it.
+cmd_diagnose_conn_failure() {
+  local host="$1" out known_hosts hostname
+  out="$(ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=5 "$host" true 2>&1)" || true
+  [[ "$out" == *"REMOTE HOST IDENTIFICATION HAS CHANGED"* || "$out" == *"Host key verification failed"* ]] || return 0
+
+  known_hosts="$(ssh -G "$host" 2>/dev/null | awk '$1=="userknownhostsfile"{print $2; exit}')"
+  known_hosts="${known_hosts:-$HOME/.ssh/known_hosts}"
+  hostname="$(ssh -G "$host" 2>/dev/null | awk '$1=="hostname"{print $2; exit}')"
+  hostname="${hostname:-$host}"
+
+  echo >&2
+  echo "conn: $host's SSH host key doesn't match what's saved for it — likely that box was reimaged/reinstalled." >&2
+  echo "conn: if that's expected (not a MITM — check the fingerprint if unsure), clear the stale entry and reconnect:" >&2
+  printf '  ssh-keygen -R %s -f %s\n' "$hostname" "$known_hosts" >&2
 }
 
 # --- add / edit / keygen -------------------------------------------------
@@ -920,6 +944,7 @@ main() {
     snip) cmd_snip "$@" ;;
     snip-popup) cmd_snip_popup "$@" ;;
     _post_connect_help) quick_help; read -r -p "(press enter to close) " _ ;;
+    _diagnose_conn_failure) cmd_diagnose_conn_failure "$@" ;;
     _snip_preview) cmd_snip_preview "$1" ;;
     bind-key) cmd_bind_key "$@" ;;
     secret) cmd_secret "$@" ;;

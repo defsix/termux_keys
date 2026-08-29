@@ -442,7 +442,31 @@ function Invoke-ConnConnect {
         Test-ConnCommand ssh 'Settings > Apps > Optional Features > OpenSSH Client'
         & ssh $HostArg
     }
+    if ($LASTEXITCODE -ne 0) { Test-ConnHostKeyMismatch -HostArg $HostArg }
     Show-ConnQuickHelp
+}
+
+# Runs after a failed connect. ssh already printed its own warning straight
+# to the console, but re-probes in batch mode to get that diagnostic text
+# on its own — if it's a stale host-key mismatch (the box got reimaged or
+# reinstalled), hands back the exact ssh-keygen -R command to clear it
+# instead of making you go dig for it.
+function Test-ConnHostKeyMismatch {
+    param([string]$HostArg)
+    $probe = (& ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=5 $HostArg true 2>&1 | Out-String)
+    if ($probe -notmatch 'REMOTE HOST IDENTIFICATION HAS CHANGED' -and $probe -notmatch 'Host key verification failed') {
+        return
+    }
+
+    $resolved = & ssh -G $HostArg 2>$null
+    $rHost = ($resolved | Where-Object { $_ -match '^hostname\s' } | Select-Object -First 1) -replace '^hostname\s+', ''
+    if (-not $rHost) { $rHost = $HostArg }
+    $knownHosts = Join-Path $env:USERPROFILE '.ssh\known_hosts'
+
+    Write-Host ''
+    Write-Host "conn: $HostArg's SSH host key doesn't match what's saved for it - likely that box was reimaged/reinstalled." -ForegroundColor Yellow
+    Write-Host "conn: if that's expected (not a MITM - check the fingerprint if unsure), clear the stale entry and reconnect:" -ForegroundColor Yellow
+    Write-Host "  ssh-keygen -R $rHost -f `"$knownHosts`"" -ForegroundColor Cyan
 }
 
 function Invoke-ConnList {
