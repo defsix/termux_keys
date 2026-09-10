@@ -20,6 +20,14 @@ Everything else in this repo exists to make those two things work.
 *(Mockup with placeholder hosts/IPs, not a real device — illustrative only.
 See the relevant sections below for the rest.)*
 
+## Disclaimer
+
+Personal-use tool, built for a single-user homelab setup. No telemetry, no
+analytics, nothing phones home — see [`LICENSE`](LICENSE) for the standard
+MIT "as is, no warranty" terms. It hasn't been audited for production,
+multi-tenant, or compliance-sensitive use; review the code yourself before
+relying on it for anything beyond your own devices.
+
 ## Install
 
 ```
