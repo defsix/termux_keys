@@ -18,26 +18,16 @@ Project: conn. What it is: a small, dependency-light SSH connection and snippet 
 - ROADMAP.md: open items only. BUILDLOG.md: dated entries of what was done and why.
 - Read all three at the start of each session and summarise where we left off in 2-3 lines. Update them after each completed step.
 - Commit after each working step with a short, clear message. Keep secrets out of code and logs (.env, listed in .gitignore).
-- Screenshots and files I send are files too: save each into archive/screenshots/ (non-images: archive/board-files/) named YYYY-MM-DD-HHMM-what-it-shows.ext.
+- Screenshots and files I send are files too: save each into archive/screenshots/ (non-images: archive/files/) named YYYY-MM-DD-HHMM-what-it-shows.ext.
 
-## Szept (my one to-do and reminder list)
-Szept holds everything still to do, across all projects. Use the Szept connector (add_reminder, edit_reminder, complete_reminder, cancel_reminder).
-- Everything unfinished goes into Szept, dated or not: every open board card (any kind) and every open ROADMAP item. No date = a to-do (leave due empty); with a date = a timed reminder. Your own jobs go in as undated to-dos starting "Claude: ".
-- Every entry gets a priority: urgent (security, or a deadline where something breaks or expires), important (matters, no rush), normal (routine), someday (ideas, maybe-laters). One left without a priority shows as "unsorted" and gets flagged.
-- Every entry also gets a slot (how it gets done) and a plan (roughly when). Slots: sat-day (hands-on, Saturday daytime), evening (computer work, Saturday/Sunday evening), work-gap (a short remote job; only if it needs few windows), claude (you do it alone), waiting (blocked). Plan = the Saturday of the weekend to aim for (YYYY-MM-DD), or "later". Spread jobs over weekends, a few hours per slot, urgent first; a due time, if any, still rules.
-- Set project to this project's name, put "board <ref>" in the text when it belongs to a board card, and add a short opening line (claude_prompt) I can paste to pick the job up with you.
-- I can add notes and ask you questions on any Szept item. At the start of a session check list_questions and answer each one with add_comment_reply; read my notes on the items you work on.
-- Add the entry in the same turn the card or ROADMAP line is created, and put the Szept id in the card's reply. When it's finished or dropped, complete or cancel the Szept entry in the same turn.
-
-## Work board (job tracking artifact)
-Board for this project: none yet: build one the first time there is something to track.
-
-- One board per project for everything open: decisions, my jobs, Claude's jobs, issues, shopping. Same style on every board: a copy of my Homelab board page, https://claude.ai/artifact/JBUfp8qh7DjQDFweo8Xvhe (read it with the Artifact tool), with only the title and intro changed. Publish as a private Artifact with capabilities {"db": {}, "assets": {}}. Save the page source as files/work-board.html and record the URL in the README.
-- Records live in the artifact database, collection items, never in the page source. Change them with ArtifactData, not by republishing.
-- Fields: ref (D# decision, Y# my job, C# Claude's job, S# shopping, I# issue; never reuse), kind (decide | mine | claude | shop), area, title (HIGH: for urgent), detail, suggest (what Yes means, and the undo), cmd + where (exact command, where to run it, side effects, undo), due (YYYY-MM-DD), waiting, status (open | yes | no | later | done | skip | question), note (mine: never overwrite), reply (yours: the only field of yours the card shows), files (list of {id, name, type, size, at, by}; append only), order.
-- Buttons: decisions Yes / No / Later; jobs Done / Later / Not needed; shopping Bought / Later / Not needed; every card also has Question, a comment box and "+ Add a file or screenshot".
-- Every session: read all items. Answer status question first, in reply, then set it back to open. Act on every yes. Answer every note in reply. Open each new attachment I added and save a copy in archive/.
-- When you finish something: set done and reply with what was done, what was tested, what was NOT tested, and the undo. If a Yes needs something from me: leave it open, set waiting, explain in reply, add a "mine" item with the exact command. If I say No: set no, confirm, don't suggest it again.
-- Add an item whenever something comes up; don't leave it only in the chat. Pin every write with if_version. Batch when changing more than two items. If you were wrong, say so in the item's reply.
-- Whenever a status changes, update ROADMAP.md and BUILDLOG.md in the same turn, and log every command I'm asked to run in a "Commands log" section of the README.
-- "Review the board" = do the session routine and report: done, waiting for me, not started.
+## Szept (my one list for everything still to do)
+Szept (the Szept connector, one page per project) holds every open decision, job of mine, job of yours, part to buy and reminder, across all projects. Szept project for this repo: "Termux".
+- Add an item whenever something comes up (a finding, a follow-up, a command I need to run, a decision, a part to buy), in the same turn. Never leave it only in the chat or in a ROADMAP.
+- kind: decide (fill suggest: what Yes means, what you then do, and the undo) | mine (my hands-on job: fill cmd + where = the exact command, where to run it, its side effects and the undo) | claude (yours) | shop (a part to buy) | todo | reminder (timed). Add detail (what and why, with the evidence), area, tags, est_minutes when known, blocked_by or waiting while blocked, and a short claude_prompt I can paste to pick the job up with you.
+- priority: urgent (security, or a deadline where something breaks or expires) | important (matters, no rush) | normal (routine) | someday (ideas, maybe-laters). Never leave it empty.
+- slot (how) + plan (roughly when): sat-day (hands-on, Saturday daytime) | evening (computer work, Saturday/Sunday evening) | work-gap (a short job from work by phone over Termux, RustDesk or SSH; only if it needs few windows) | claude (you do it alone) | waiting (blocked). Plan = the Saturday of the weekend to aim for (YYYY-MM-DD), or "later". Spread jobs over weekends, a few hours per slot, urgent first; a due time, if any, still rules. Dated weekend jobs go in my batched slots: hands-on Sat 10:00, computer Sat 19:00.
+- At the start of each session: list_questions (answer each with add_comment_reply) and project_summary for this project; act on every decision I answered Yes; read my notes on the items you work on.
+- When you finish something: complete_reminder with done, tested, not_tested and undo filled in. If a Yes turns out to need something from me: keep it open, add a mine item with the exact command, and set blocked_by. If I say No or want something kept: it's closed; don't suggest it again. If you were wrong about something, say so plainly in a reply on the item.
+- Still ask before deleting files, installing packages or anything irreversible, unless the item's suggest described that exact action and I said Yes.
+- ROADMAP.md: plans, context and ideas only; on my server Szept writes each project's open items into its "Open in Szept" block every night, so never hand-copy open items. No passwords, PINs or keys in Szept: every chat can read it.
+- "Review Szept" (or "review the board") = do the session start and report: done, waiting for me, not started.
